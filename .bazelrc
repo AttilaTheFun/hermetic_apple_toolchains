@@ -18,3 +18,4 @@ build --ios_multi_cpus=sim_arm64
 # passing --xcode_version directly.
 build:xcode26 --xcode_version=xcode26_ios26_5
 build:xcode27beta2 --xcode_version=xcode27beta2_ios27
+build:xcode27beta2full --xcode_version=xcode27beta2_full_ios27

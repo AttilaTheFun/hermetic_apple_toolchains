@@ -44,6 +44,13 @@ def _apple_developer_dir_repository_impl(rctx):
     toolchain_root = repo_root_from_marker(rctx, rctx.attr.toolchain_repo)
     sdk_root = repo_root_from_marker(rctx, rctx.attr.sdk_repo)
 
+    # Toolchains repackaged from a full Xcode keep their contents in an
+    # Xcode.app bundle shell (see scripts/create_hermetic_toolchain.sh);
+    # plain Command Line Tools have everything at the repository root.
+    toolchain_contents = toolchain_root.get_child("Xcode.app", "Contents")
+    if not toolchain_contents.exists:
+        toolchain_contents = toolchain_root
+
     rctx.execute(["mkdir", "-p", "CommandLineTools/SDKs"])
 
     for name in ["usr", "Library"]:
@@ -68,23 +75,77 @@ def _apple_developer_dir_repository_impl(rctx):
 
     sdk_info = json.decode(rctx.read(sdk_root.get_child("sdk_info.json")))
 
-    # Materialize the platform and toolchain library directories that the
-    # Swift driver and linker add to their search paths, so that every link
-    # does not warn about missing directories. They are empty: with modern
-    # minimum OS versions the Swift runtime ships in the OS and no
-    # back-deployment libraries are required.
+    # Materialize the platform directories. When the toolchain was repackaged
+    # from a full Xcode it ships the platform directories (metadata, support
+    # libraries, and asset runtimes, without SDKs); link their contents and
+    # place the vendored SDKs inside them. Otherwise (plain Command Line
+    # Tools) create the empty directories that the Swift driver and linker
+    # add to their search paths, so that links do not warn about missing
+    # directories.
     platform_dirs = {
-        SDK_PLATFORMS[platform]: True
+        SDK_PLATFORMS[platform]: sdk_info[platform]["name"]
         for platform in sdk_info.keys()
         if platform in SDK_PLATFORMS
     }
-    for platform_dir in platform_dirs.keys():
-        base = "CommandLineTools/Platforms/{}.platform/Developer".format(platform_dir)
-        rctx.execute(["mkdir", "-p", base + "/usr/lib", base + "/Library/Frameworks"])
-        rctx.execute(["mkdir", "-p", (
-            "CommandLineTools/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/" +
-            platform_dir.lower()
-        )])
+    for platform_dir, sdk_name in platform_dirs.items():
+        base = "CommandLineTools/Platforms/{}.platform".format(platform_dir)
+        toolchain_platform = toolchain_contents.get_child(
+            "Developer",
+            "Platforms",
+            platform_dir + ".platform",
+        )
+        if toolchain_platform.exists:
+            rctx.execute(["mkdir", "-p", base + "/Developer/SDKs"])
+            for child in toolchain_platform.readdir():
+                if child.basename == "Developer":
+                    for dev_child in child.readdir():
+                        if dev_child.basename == "SDKs":
+                            continue
+                        rctx.symlink(dev_child, base + "/Developer/" + dev_child.basename)
+                else:
+                    rctx.symlink(child, base + "/" + child.basename)
+            sdk = sdks_dir.get_child(sdk_name)
+            rctx.symlink(sdk, base + "/Developer/SDKs/" + sdk_name)
+        else:
+            rctx.execute(["mkdir", "-p", base + "/Developer/usr/lib", base + "/Developer/Library/Frameworks"])
+
+    # Expose the macOS platform from the toolchain for exec-platform tools if
+    # the SDK set does not provide one.
+    if "MacOSX" not in platform_dirs:
+        toolchain_macos = toolchain_contents.get_child("Developer", "Platforms", "MacOSX.platform")
+        if toolchain_macos.exists:
+            rctx.symlink(toolchain_macos, "CommandLineTools/Platforms/MacOSX.platform")
+
+    # Toolchains repackaged from a full Xcode ship the Swift back-deployment
+    # libraries for every platform; expose the whole toolchain as
+    # XcodeDefault.xctoolchain so toolchain-relative lookups find them.
+    # Command Line Tools only ship the macOS libraries, so for those create
+    # empty directories to keep the linker from warning about missing search
+    # paths (with modern minimum OS versions the Swift runtime ships in the
+    # OS and no back-deployment libraries are required).
+    if toolchain_root.get_child("usr", "lib", "swift", "iphoneos").exists:
+        rctx.execute(["mkdir", "-p", "CommandLineTools/Toolchains/XcodeDefault.xctoolchain"])
+        rctx.symlink(
+            toolchain_root.get_child("usr"),
+            "CommandLineTools/Toolchains/XcodeDefault.xctoolchain/usr",
+        )
+    else:
+        for platform_dir in platform_dirs.keys():
+            rctx.execute(["mkdir", "-p", (
+                "CommandLineTools/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/" +
+                platform_dir.lower()
+            )])
+
+    # The Interface Builder and asset catalog tools (actool, ibtool, ibtoold)
+    # discover their platform support plug-ins from the containing Xcode.app
+    # bundle. Hermetic developer directories are not app bundles, so link the
+    # toolchain's plug-in roots next to CommandLineTools; rules_apple's
+    # xctoolrunner points DVTExtraPlugInPaths at the PlugIns sibling when it
+    # exists.
+    for name in ["Frameworks", "SharedFrameworks", "PlugIns"]:
+        entry = toolchain_contents.get_child(name)
+        if entry.exists:
+            rctx.symlink(entry, name)
     toolchain_info_path = toolchain_root.get_child("toolchain_info.json")
     toolchain_info = {}
     if toolchain_info_path.exists:

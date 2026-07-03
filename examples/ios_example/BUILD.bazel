@@ -16,3 +16,17 @@ ios_application(
     minimum_os_version = "26.0",
     deps = [":sources"],
 )
+
+# Variant with an asset catalog, which requires a toolchain repackaged from a
+# full Xcode with `bazel run //scripts:create_hermetic_toolchain` (actool is
+# not part of the Command Line Tools). Build with --config=xcode27beta2full.
+ios_application(
+    name = "ios_example_assets",
+    bundle_id = "com.example.hermetic-apple-toolchains",
+    families = ["iphone"],
+    infoplists = ["Info.plist"],
+    minimum_os_version = "26.0",
+    resources = glob(["Assets.xcassets/**"]),
+    tags = ["manual"],
+    deps = [":sources"],
+)

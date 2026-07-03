@@ -11,6 +11,7 @@ bazel_dep(name = "apple_support", version = "2.5.4")
 # cc_toolchain_config.bzl load from these modules).
 bazel_dep(name = "bazel_features", version = "1.47.0")
 bazel_dep(name = "rules_cc", version = "0.2.19")
+bazel_dep(name = "rules_shell", version = "0.6.1")
 
 bazel_dep(name = "rules_apple", version = "4.1.1", dev_dependency = True)
 bazel_dep(name = "rules_swift", version = "4.0.0-rc3", dev_dependency = True)
@@ -66,6 +67,31 @@ apple.developer_dir(
     aliases = ["xcode27beta2"],
     sdk = "ios27",
     toolchain = "xcode27beta2",
+)
+
+# Toolchain and SDKs repackaged from the downloaded Xcode 27 beta 2 app with:
+#   bazel run //scripts:create_hermetic_toolchain -- \
+#       --xcode_path ~/Downloads/Xcode-beta.app \
+#       --toolchain_output_path ~/Library/Caches/hermetic_apple_toolchains/xcode27beta2/toolchain \
+#       --sdk_output_path ~/Library/Caches/hermetic_apple_toolchains/xcode27beta2/sdks
+# Unlike the Command Line Tools based toolchains above, this one includes
+# actool/ibtool, so asset catalogs work.
+apple.toolchain(
+    name = "xcode27beta2_full",
+    path = "/Users/logan/Library/Caches/hermetic_apple_toolchains/xcode27beta2/toolchain",
+)
+apple.sdk(
+    name = "ios27_repackaged",
+    paths = {
+        "iphoneos": "/Users/logan/Library/Caches/hermetic_apple_toolchains/xcode27beta2/sdks/iPhoneOS27.0.sdk",
+        "iphonesimulator": "/Users/logan/Library/Caches/hermetic_apple_toolchains/xcode27beta2/sdks/iPhoneSimulator27.0.sdk",
+    },
+)
+apple.developer_dir(
+    name = "xcode27beta2_full_ios27",
+    aliases = ["xcode27beta2full"],
+    sdk = "ios27_repackaged",
+    toolchain = "xcode27beta2_full",
 )
 use_repo(apple, "apple_toolchains", "hermetic_apple_cc", "hermetic_swift_config")
 

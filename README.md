@@ -144,6 +144,45 @@ directory, so `--xcode_version=<name-or-alias>` switches the entire build
 (compilers, SDKs, and the values stamped into `Info.plist`, such as
 `DTSDKName` and `DTSDKBuild`) to that pair.
 
+## Repackaging a full Xcode (asset catalogs, ibtool, momc, ...)
+
+The Command Line Tools contain the compilers but not Xcode's designer tools
+(`actool`, `ibtool`, `momc`, ...), so asset catalogs cannot be built with a
+CLT-based toolchain. To lift that restriction, repackage a downloaded
+`Xcode.app` (it never needs to be installed or launched) into hermetic
+artifacts:
+
+```
+bazel run //scripts:create_hermetic_toolchain -- \
+    --xcode_path ~/Downloads/Xcode-beta.app \
+    --toolchain_output_path /path/to/out/toolchain \
+    --sdk_output_path /path/to/out/sdks \
+    [--simulator_output_path /path/to/out/simruntimes] \
+    [--platforms iphoneos,iphonesimulator]
+```
+
+The toolchain output (~2 GB) contains the `XcodeDefault.xctoolchain` compilers
+merged with the Xcode developer tools, the framework roots those tools load
+their implementations from (`Frameworks`, `SharedFrameworks`, `PlugIns`), the
+Xcode agents (`AssetCatalogAgent`), and the platform directories minus their
+SDKs — wrapped in an `Xcode.app/Contents` shell so all of the tools'
+bundle-relative rpaths resolve, with a top-level `usr` symlink for Command
+Line Tools layout compatibility. The SDK output contains the platform SDKs as
+plain directories. Both are self-contained, relocatable, and suitable for
+tarring and re-hosting; register them with the same `apple.toolchain(path/url
+= ...)` and `apple.sdk(...)` tags as any other artifact.
+
+Compared to a CLT toolchain, a repackaged Xcode toolchain additionally
+provides working `actool`/`ibtool` (see `//examples/ios_example:
+ios_example_assets`) and the Swift back-deployment libraries for all
+platforms. Two integration details make the designer tools work outside a
+real Xcode installation: platform definitions are discovered through
+`DEVELOPER_DIR`'s `Platforms` directory (which the assembled developer dir
+provides), and Interface Builder's platform support plug-ins are discovered
+through `DVTExtraPlugInPaths`, which rules_apple's `xctoolrunner` (patched on
+the fork branch) points at the `PlugIns` directory that the assembly places
+next to `CommandLineTools`.
+
 ## Where these artifacts come from
 
 Findings on how Apple distributes and installs each piece (macOS 26 / Xcode
@@ -216,10 +255,10 @@ are licensed to use, and you must acknowledge this by setting
   `/usr/bin/codesign`, `/usr/bin/plutil`, `PlistBuddy`); these ship with
   macOS, not Xcode.
 * Resource processing that requires Xcode-only tools (`actool`, `ibtool`,
-  storyboards, asset catalogs) does not work with a Command Line Tools style
-  toolchain; apps must use code-defined UI and `UILaunchScreen`. (An
-  Xcode-style developer directory assembled from a full `Xcode.app` copy could
-  lift this restriction later.)
+  storyboards, asset catalogs) does not work with a plain Command Line Tools
+  toolchain; use a toolchain repackaged from a full `Xcode.app` with
+  `bazel run //scripts:create_hermetic_toolchain` for those (see
+  "Repackaging a full Xcode" above).
 * Local execution only for now: the generated `xcode_version` embeds the
   absolute path of the assembled developer directory on this machine.
 * Repository-rule *detection* steps of apple_support/rules_swift still probe
