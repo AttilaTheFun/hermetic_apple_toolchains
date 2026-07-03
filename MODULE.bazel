@@ -1,0 +1,84 @@
+module(
+    name = "hermetic_apple_toolchains",
+    version = "0.0.0",
+    bazel_compatibility = [">=8.0.0"],
+)
+
+bazel_dep(name = "apple_support", version = "2.5.4")
+
+# Needed by the generated hermetic Apple CC toolchain repository, which reuses
+# apple_support's crosstool (the generated BUILD file and the copied
+# cc_toolchain_config.bzl load from these modules).
+bazel_dep(name = "bazel_features", version = "1.47.0")
+bazel_dep(name = "rules_cc", version = "0.2.19")
+
+bazel_dep(name = "rules_apple", version = "4.1.1", dev_dependency = True)
+bazel_dep(name = "rules_swift", version = "4.0.0-rc3", dev_dependency = True)
+
+# The hermetic developer directory support requires changes that are not yet
+# upstream; see the accompanying branches in these forks.
+local_path_override(
+    module_name = "apple_support",
+    path = "../apple_support",
+)
+
+local_path_override(
+    module_name = "rules_apple",
+    path = "../rules_apple",
+)
+
+# Example configuration for this machine, used to build //examples/... These
+# tags are what users of this module would write in their own MODULE.bazel,
+# pointing at artifacts they re-host (either local paths or URLs on servers
+# they manage).
+apple = use_extension("//:extensions.bzl", "apple", dev_dependency = True)
+apple.toolchain(
+    name = "xcode26",
+    path = "/Library/Developer/CommandLineTools",
+)
+apple.toolchain(
+    name = "xcode27beta2",
+    url = "file:///Users/logan/Downloads/Command_Line_Tools_27_beta_2.dmg",
+)
+apple.sdk(
+    name = "ios26_5",
+    paths = {
+        "iphoneos": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.5.sdk",
+        "iphonesimulator": "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk",
+    },
+)
+apple.sdk(
+    name = "ios27",
+    paths = {
+        "iphoneos": "/Users/logan/Downloads/Xcode-beta.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk",
+        "iphonesimulator": "/Users/logan/Downloads/Xcode-beta.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk",
+    },
+)
+apple.developer_dir(
+    name = "xcode26_ios26_5",
+    aliases = ["xcode26"],
+    default = True,
+    sdk = "ios26_5",
+    toolchain = "xcode26",
+)
+apple.developer_dir(
+    name = "xcode27beta2_ios27",
+    aliases = ["xcode27beta2"],
+    sdk = "ios27",
+    toolchain = "xcode27beta2",
+)
+use_repo(apple, "apple_toolchains", "hermetic_apple_cc", "hermetic_swift_config")
+
+apple_cc = use_extension(
+    "@apple_support//crosstool:setup.bzl",
+    "apple_cc_configure_extension",
+    dev_dependency = True,
+)
+override_repo(apple_cc, local_config_apple_cc = "hermetic_apple_cc")
+
+swift_non_module_deps = use_extension(
+    "@rules_swift//swift:extensions.bzl",
+    "non_module_deps",
+    dev_dependency = True,
+)
+override_repo(swift_non_module_deps, rules_swift_local_config = "hermetic_swift_config")
