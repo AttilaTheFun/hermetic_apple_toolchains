@@ -15,6 +15,7 @@ bazel_dep(name = "rules_shell", version = "0.6.1")
 
 bazel_dep(name = "rules_apple", version = "4.5.3", dev_dependency = True)
 bazel_dep(name = "rules_swift", version = "4.0.0-rc3", dev_dependency = True)
+bazel_dep(name = "rules_xcodeproj", version = "4.1.0", dev_dependency = True)
 
 # The hermetic Xcode support requires two small apple_support changes that
 # are not yet upstream; see the hermetic-developer-dirs branch of the fork.

@@ -265,6 +265,24 @@ def _apple_xcode_repository_impl(rctx):
     aliases = {alias: True for alias in rctx.attr.aliases}
     aliases[rctx.attr.xcode_name] = True
 
+    # Also accept the Xcode's version number and build number (for example
+    # "26.5" and "17F42") as aliases. Tools that discover the active Xcode
+    # via xcodebuild — rules_xcodeproj's generator, notably — select it by
+    # passing --xcode_version=<build number>.
+    result = rctx.execute([
+        "/usr/bin/plutil",
+        "-convert",
+        "json",
+        "-o",
+        "-",
+        str(rctx.path("Xcode.app").get_child("Contents", "version.plist")),
+    ])
+    if result.return_code == 0:
+        version_info = json.decode(result.stdout)
+        for key in ["CFBundleShortVersionString", "ProductBuildVersion"]:
+            if version_info.get(key):
+                aliases[version_info[key]] = True
+
     rctx.file(
         "accept_license.sh",
         _ACCEPT_LICENSE_TEMPLATE.format(app = str(rctx.path("Xcode.app"))),

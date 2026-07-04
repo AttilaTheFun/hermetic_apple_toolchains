@@ -118,6 +118,28 @@ documentation), run its bare name:
 bazel run @apple_toolchains//:xcode27beta2
 ```
 
+### Xcode projects (rules_xcodeproj)
+
+Generated projects work with hermetic Xcodes: rules_xcodeproj selects the
+Xcode to build with by build number (for example `17F42`), and hermetic
+Xcodes answer to their version and build numbers as `--xcode_version`
+aliases. One attribute must be set explicitly, since its default derives
+from the resolved Xcode's "version" — which is a path for hermetic Xcodes:
+
+```starlark
+xcodeproj(
+    name = "xcodeproj",
+    minimum_xcode_version = "26.0",   # required with hermetic Xcodes
+    project_name = "my_app",
+    top_level_targets = [...],
+)
+```
+
+Generate the project with `bazel run //my_app:xcodeproj`, then open it in
+the hermetic Xcode (`bazel run @apple_toolchains//:xcode26_5`) or build it
+headlessly with the hermetic `xcodebuild`. See
+`examples/ios_example/BUILD.bazel` for a working target.
+
 ## Simulator (optional)
 
 Only needed to *run* apps in a simulator on a machine without Xcode

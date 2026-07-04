@@ -1,5 +1,6 @@
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_swift//swift:swift.bzl", "swift_library")
+load("@rules_xcodeproj//xcodeproj:defs.bzl", "top_level_target", "xcodeproj")
 
 swift_library(
     name = "sources",
@@ -15,5 +16,23 @@ ios_application(
     infoplists = ["Info.plist"],
     minimum_os_version = "26.0",
     resources = glob(["Assets.xcassets/**"]),
+    visibility = ["@rules_xcodeproj//xcodeproj:generated"],
     deps = [":sources"],
+)
+
+# Generates ios_example.xcodeproj for working on the example in Xcode
+# (open it with the hermetic Xcode: `bazel run @apple_toolchains//:xcode26_5`).
+xcodeproj(
+    name = "xcodeproj",
+    # rules_xcodeproj defaults this to the resolved Xcode's version, which
+    # for hermetic Xcodes is a developer-directory path; set it explicitly.
+    minimum_xcode_version = "26.0",
+    project_name = "ios_example",
+    tags = ["manual"],
+    top_level_targets = [
+        top_level_target(
+            ":ios_example",
+            target_environments = ["simulator"],
+        ),
+    ],
 )
