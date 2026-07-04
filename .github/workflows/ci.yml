@@ -12,7 +12,7 @@ jobs:
     env:
       XCODE: /Applications/Xcode_26.5.app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Register the runner's Xcode as a hermetic Xcode
         run: python3 .github/register_ci_xcode.py "$XCODE"
