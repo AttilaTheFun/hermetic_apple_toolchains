@@ -11,10 +11,14 @@ xcode_config(
     versions = {versions},
 )
 
-# Convenience runnables: `bazel run @apple_toolchains//:accept_license_<name>`
-# accepts the Xcode license for that Xcode (requires sudo; needed once per
-# machine and license agreement revision).
-{license_aliases}
+# Convenience runnables:
+#   `bazel run @apple_toolchains//:accept_license_<xcode>` accepts the Xcode
+#   license (requires sudo; once per machine and agreement revision).
+#   `bazel run @apple_toolchains//:install_runtime_<runtime>` registers a
+#   vendored simulator runtime with CoreSimulator (idempotent).
+# The with_developer_dir_<xcode> targets are `--run_under` wrappers that
+# point DEVELOPER_DIR at the corresponding hermetic Xcode.
+{aliases}
 """
 
 def _apple_xcode_config_repository_impl(rctx):
@@ -23,17 +27,25 @@ def _apple_xcode_config_repository_impl(rctx):
         for repo in rctx.attr.xcode_repos
     ]
     default = "@{}//:version".format(rctx.attr.default_xcode_repo)
-    license_aliases = "\n".join([
-        ("alias(\n" +
-         "    name = \"accept_license_{name}\",\n" +
-         "    actual = \"@{name}//:accept_license\",\n" +
-         ")\n").format(name = repo)
-        for repo in rctx.attr.xcode_repos
-    ])
+
+    def alias(name, actual):
+        return ("alias(\n" +
+                "    name = \"{}\",\n" +
+                "    actual = \"{}\",\n" +
+                ")\n").format(name, actual)
+
+    aliases = []
+    for repo in rctx.attr.xcode_repos:
+        aliases.append(alias("accept_license_" + repo, "@{}//:accept_license".format(repo)))
+        aliases.append(alias("first_launch_" + repo, "@{}//:first_launch".format(repo)))
+        aliases.append(alias("with_developer_dir_" + repo, "@{}//:with_developer_dir".format(repo)))
+    for repo in rctx.attr.simulator_runtime_repos:
+        aliases.append(alias("install_runtime_" + repo, "@{}//:install".format(repo)))
+
     rctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(
         default = repr(default),
         versions = repr(versions),
-        license_aliases = license_aliases,
+        aliases = "\n".join(aliases),
     ))
 
 apple_xcode_config_repository = repository_rule(
@@ -43,6 +55,9 @@ apple_xcode_config_repository = repository_rule(
         "xcode_repos": attr.string_list(
             doc = "Names of the Xcode repositories.",
             mandatory = True,
+        ),
+        "simulator_runtime_repos": attr.string_list(
+            doc = "Names of the simulator runtime repositories.",
         ),
         "default_xcode_repo": attr.string(
             doc = "Xcode used when --xcode_version is not passed.",

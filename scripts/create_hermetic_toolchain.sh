@@ -6,7 +6,8 @@
 #   bazel run //scripts:create_hermetic_toolchain -- \
 #       --xcode_path ~/Downloads/Xcode-beta.app \
 #       [--xcode_output_path /path/to/out/Xcode.app] \
-#       [--simulator_output_path /path/to/out/simulators]
+#       [--simulator_output_path /path/to/out/simulators] \
+#       [--download_platform iOS]
 #
 # Outputs:
 #   xcode_output_path        A verbatim copy of the input Xcode.app (an APFS
@@ -23,10 +24,15 @@
 #     *.simruntime           runtimes bundled inside the Xcode (old Xcodes),
 #     iOS_<ver>_<build>.dmg  or an installed runtime image matching the
 #                            Xcode's iOS version, exported from the system's
-#                            MobileAsset store. Modern Xcode distributes
-#                            runtimes separately; they are only needed to
-#                            *run* apps, and install on another machine with
-#                            `xcrun simctl runtime add <image>.dmg`.
+#                            MobileAsset store. With --download_platform, the
+#                            runtime matching this Xcode is downloaded from
+#                            Apple (`xcodebuild -downloadPlatform`, requires
+#                            an accepted license) and exported here. Modern
+#                            Xcode distributes runtimes separately; they are
+#                            only needed to *run* apps, and are registered
+#                            with hermetic_apple_toolchains'
+#                            apple.simulator_runtime tag (or manually with
+#                            `xcrun simctl runtime add <image>.dmg`).
 #
 # Register the Xcode with hermetic_apple_toolchains:
 #
@@ -38,6 +44,7 @@ set -euo pipefail
 XCODE_PATH=""
 XCODE_OUT=""
 SIMULATOR_OUT=""
+DOWNLOAD_PLATFORM=""
 
 usage() {
   sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
@@ -58,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --xcode_path) XCODE_PATH="$value" ;;
     --xcode_output_path) XCODE_OUT="$value" ;;
     --simulator_output_path) SIMULATOR_OUT="$value" ;;
+    --download_platform) DOWNLOAD_PLATFORM="$value" ;;
     *) echo "Unknown argument: $arg" >&2; usage ;;
   esac
   shift
@@ -106,6 +114,30 @@ if [[ -n "$SIMULATOR_OUT" ]]; then
   mkdir -p "$SIMULATOR_OUT"
   echo "==> Simulator runtimes: $SIMULATOR_OUT"
   found_runtime=""
+
+  # Download the runtime matching this Xcode from Apple and export it. This
+  # requires the Xcode's license to have been accepted, and also registers
+  # the runtime with CoreSimulator on this machine as a side effect.
+  if [[ -n "$DOWNLOAD_PLATFORM" ]]; then
+    echo "  - Downloading the $DOWNLOAD_PLATFORM runtime via xcodebuild (large)..."
+    env DEVELOPER_DIR="$DEVELOPER" "$DEVELOPER/usr/bin/xcodebuild" \
+      -downloadPlatform "$DOWNLOAD_PLATFORM" \
+      -exportPath "$SIMULATOR_OUT" \
+      -architectureVariant arm64
+    # Flatten the exported bundle to <Platform>_<version>_<build>.dmg.
+    for bundle in "$SIMULATOR_OUT"/*.exportedBundle; do
+      [[ -d "$bundle" ]] || continue
+      base=$(basename "$bundle" .exportedBundle)
+      IFS='_' read -r _canonical version build <<< "$base"
+      dmg=$(ls "$bundle"/Restore/*.dmg 2>/dev/null | head -1)
+      [[ -n "$dmg" ]] || continue
+      out_name="${DOWNLOAD_PLATFORM}_${version}_${build}.dmg"
+      echo "  - ${out_name}"
+      cp -c "$dmg" "$SIMULATOR_OUT/$out_name" 2>/dev/null || cp "$dmg" "$SIMULATOR_OUT/$out_name"
+      rm -rf "$bundle"
+      found_runtime=1
+    done
+  fi
 
   # Old Xcodes bundled simulator runtimes inside the platform directories.
   for runtimes_dir in "$DEVELOPER"/Platforms/*.platform/Library/Developer/CoreSimulator/Profiles/Runtimes; do

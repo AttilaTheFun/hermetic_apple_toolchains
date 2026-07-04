@@ -49,6 +49,56 @@ sh_binary(
     name = "accept_license",
     srcs = ["accept_license.sh"],
 )
+
+# `--run_under` wrapper that runs a command with DEVELOPER_DIR pointing at
+# this Xcode, so that `bazel run` launchers (for example rules_apple's
+# simulator runner, which consults `xcode-select -p`) use the hermetic Xcode
+# instead of whatever the host has selected.
+sh_binary(
+    name = "with_developer_dir",
+    srcs = ["with_developer_dir.sh"],
+)
+
+# Installs this Xcode's system support components (CoreSimulator framework
+# and friends) via `xcodebuild -runFirstLaunch` (requires sudo). Needed on
+# machines that have never installed an Xcode of this generation — in
+# particular, running *beta* simulator runtimes requires the beta's
+# CoreSimulator system components.
+sh_binary(
+    name = "first_launch",
+    srcs = ["first_launch.sh"],
+)
+"""
+
+_FIRST_LAUNCH_TEMPLATE = """\
+#!/bin/bash
+#
+# Installs the Xcode system support components (CoreSimulator framework and
+# friends) for the hermetic Xcode at {app}, system-wide (requires sudo).
+
+set -euo pipefail
+
+DEV="{app}/Contents/Developer"
+
+echo "Installing Xcode system support components from $DEV."
+echo "This records system-wide state and requires sudo."
+
+if [[ ! -t 0 ]]; then
+  echo ""
+  echo "No terminal is attached, so sudo cannot prompt for your password."
+  echo "Run this from a terminal instead:"
+  echo ""
+  echo "    sudo env DEVELOPER_DIR='$DEV' '$DEV/usr/bin/xcodebuild' -runFirstLaunch"
+  exit 1
+fi
+
+exec sudo env DEVELOPER_DIR="$DEV" "$DEV/usr/bin/xcodebuild" -runFirstLaunch
+"""
+
+_WITH_DEVELOPER_DIR_TEMPLATE = """\
+#!/bin/bash
+export DEVELOPER_DIR="{developer_dir}"
+exec "$@"
 """
 
 _ACCEPT_LICENSE_TEMPLATE = """\
@@ -185,6 +235,16 @@ def _apple_xcode_repository_impl(rctx):
     rctx.file(
         "accept_license.sh",
         _ACCEPT_LICENSE_TEMPLATE.format(app = str(rctx.path("Xcode.app"))),
+        executable = True,
+    )
+    rctx.file(
+        "with_developer_dir.sh",
+        _WITH_DEVELOPER_DIR_TEMPLATE.format(developer_dir = str(developer)),
+        executable = True,
+    )
+    rctx.file(
+        "first_launch.sh",
+        _FIRST_LAUNCH_TEMPLATE.format(app = str(rctx.path("Xcode.app"))),
         executable = True,
     )
     rctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(

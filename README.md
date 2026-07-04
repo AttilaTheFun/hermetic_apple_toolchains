@@ -8,7 +8,7 @@ fetches and caches the Xcode like any other dependency.
 
 ```
 bazel build //examples/ios_example --config=xcode26        # Xcode 26.5
-bazel build //examples/ios_example --config=xcode27beta2   # Xcode 27 beta 2
+bazel run //examples/ios_example --config=xcode27beta2     # build + launch in a simulator
 # or directly:
 bazel build //examples/ios_example --xcode_version=xcode27beta2
 ```
@@ -16,6 +16,12 @@ bazel build //examples/ios_example --xcode_version=xcode27beta2
 Because each registered Xcode is a complete, unmodified copy, the full rule
 surface works: compilers, linkers, asset catalogs (`actool`), Interface
 Builder tools, Core Data models, and a fully functional `xcodebuild`.
+
+A note on SDKs: modern Xcode ships **all platform SDKs inside the app** —
+what Xcode's "install iOS platform support" dialog downloads is only the
+*simulator runtime*. So registering an Xcode registers its SDKs, and the
+runtime is the one additional artifact, handled by `apple.simulator_runtime`
+below.
 
 ## Registering Xcodes
 
@@ -37,6 +43,16 @@ apple.xcode(
     name = "xcode27beta2",
     url = "https://mirror.example.com/Xcode_27_beta_2.tar.zst",
     sha256 = "...",
+)
+
+# Simulator runtimes: only needed to *run* apps in a simulator. The xcode
+# attribute selects which hermetic Xcode registers the runtime with
+# CoreSimulator.
+apple.simulator_runtime(
+    name = "ios27_runtime",
+    url = "https://mirror.example.com/iOS_27.0_24A5370g.dmg",
+    sha256 = "...",
+    xcode = "xcode27beta2",
 )
 use_repo(apple, "apple_toolchains", "hermetic_apple_cc", "hermetic_swift_config")
 
@@ -68,17 +84,32 @@ build:xcode26 --xcode_version=xcode26_5
 build:xcode27beta2 --xcode_version=xcode27beta2
 ```
 
-Before the first build with a given Xcode, accept its license — once per
-machine and per license agreement revision (GM and Beta agreements are
-tracked separately by macOS):
+One-time machine setup per Xcode / runtime (all runnables are idempotent or
+safe to re-run):
 
 ```
-bazel run @apple_toolchains//:accept_license_xcode27beta2   # prompts for sudo
+# Accept the Xcode license (prompts for sudo; once per machine and license
+# agreement revision — GM and Beta agreements are tracked separately).
+bazel run @apple_toolchains//:accept_license_xcode27beta2
+
+# Install the Xcode generation's system support components (CoreSimulator
+# framework and friends; prompts for sudo). Needed on machines that have
+# never installed an Xcode of this generation — in particular, *beta*
+# simulator runtimes require the beta's CoreSimulator components.
+bazel run @apple_toolchains//:first_launch_xcode27beta2
+
+# Register the simulator runtime with CoreSimulator (no-op when a runtime
+# with that build is already registered; macOS shows an admin authorization
+# prompt — "xcodebuild is trying to install Apple software" — on first
+# registration).
+bazel run @apple_toolchains//:install_runtime_ios27_runtime
 ```
 
-The runnable is a no-op when the agreement revision is already accepted
-(macOS records acceptance in `/Library/Preferences/com.apple.dt.Xcode.plist`,
-keyed by the `licenseID` in the app's `Contents/Resources/LicenseInfo.plist`).
+After that, `bazel run //your:ios_application --config=...` builds the app
+with the hermetic Xcode, boots a simulator on the matching runtime, launches
+the app, and streams its logs; the `run:` config options in `.bazelrc` point
+rules_apple's simulator runner at the hermetic Xcode via a `--run_under`
+wrapper (`@apple_toolchains//:with_developer_dir_<name>`).
 
 ## Exporting artifacts from a machine that has them
 

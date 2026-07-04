@@ -40,6 +40,7 @@ machine (and per license agreement revision):
 """
 
 load("//private:apple_cc.bzl", "hermetic_apple_cc_repository")
+load("//private:simulator_runtime.bzl", "apple_simulator_runtime_repository")
 load("//private:swift_config.bzl", "hermetic_swift_config_repository")
 load("//private:xcode.bzl", "apple_xcode_repository")
 load("//private:xcode_config.bzl", "apple_xcode_config_repository")
@@ -72,6 +73,29 @@ _XCODE_TAG = tag_class(
     },
 )
 
+_SIMULATOR_RUNTIME_TAG = tag_class(
+    doc = "Registers a hermetic simulator runtime disk image.",
+    attrs = {
+        "name": attr.string(
+            doc = "Repository name for the runtime.",
+            mandatory = True,
+        ),
+        "path": attr.string(
+            doc = "Absolute path to a simulator runtime .dmg.",
+        ),
+        "url": attr.string(
+            doc = "URL of a re-hosted simulator runtime .dmg.",
+        ),
+        "sha256": attr.string(
+            doc = "SHA-256 of the downloaded file.",
+        ),
+        "xcode": attr.string(
+            doc = "Name of the apple.xcode tag used to register the runtime; " +
+                  "defaults to the default Xcode.",
+        ),
+    },
+)
+
 def _collect_root_tags(module_ctx, tag_name):
     tags = []
     for module in module_ctx.modules:
@@ -81,6 +105,7 @@ def _collect_root_tags(module_ctx, tag_name):
 
 def _apple_impl(module_ctx):
     xcodes = _collect_root_tags(module_ctx, "xcode")
+    runtimes = _collect_root_tags(module_ctx, "simulator_runtime")
 
     if not xcodes:
         fail("Expected at least one apple.xcode(...) tag in the root module.")
@@ -105,9 +130,29 @@ def _apple_impl(module_ctx):
                 fail("Multiple apple.xcode tags have default = True.")
             default_repo = tag.name
 
+    runtime_repos = []
+    for tag in runtimes:
+        if tag.name in runtime_repos or tag.name in xcode_repos:
+            fail("Duplicate repository name {}".format(repr(tag.name)))
+        xcode = tag.xcode or default_repo or xcode_repos[0]
+        if xcode not in xcode_repos:
+            fail("apple.simulator_runtime(name = {}): unknown xcode {}".format(
+                repr(tag.name),
+                repr(xcode),
+            ))
+        apple_simulator_runtime_repository(
+            name = tag.name,
+            path = tag.path,
+            url = tag.url,
+            sha256 = tag.sha256,
+            xcode_repo = "@{}//:BUILD.bazel".format(xcode),
+        )
+        runtime_repos.append(tag.name)
+
     apple_xcode_config_repository(
         name = "apple_toolchains",
         xcode_repos = xcode_repos,
+        simulator_runtime_repos = runtime_repos,
         default_xcode_repo = default_repo or xcode_repos[0],
     )
 
@@ -117,9 +162,10 @@ def _apple_impl(module_ctx):
     return module_ctx.extension_metadata(reproducible = True)
 
 apple = module_extension(
-    doc = "Registers hermetic, verbatim Xcode installations.",
+    doc = "Registers hermetic, verbatim Xcode installations and simulator runtimes.",
     implementation = _apple_impl,
     tag_classes = {
+        "simulator_runtime": _SIMULATOR_RUNTIME_TAG,
         "xcode": _XCODE_TAG,
     },
 )
