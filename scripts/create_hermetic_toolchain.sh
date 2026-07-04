@@ -13,18 +13,15 @@
 #
 # Outputs:
 #   toolchain_output_path/
-#     usr                  Symlink to Xcode.app/Contents/Developer/usr, for
-#                          Command Line Tools layout compatibility.
-#     SDKs/MacOSX.sdk      The macOS SDK, for building exec-platform tools.
-#     Xcode.app/Contents/
-#       Developer/usr      XcodeDefault.xctoolchain/usr overlaid with the
-#                          Xcode developer tools (actool, ibtool, ibtoold,
-#                          momc, mapc, ...) from Contents/Developer/usr.
-#       Developer/Library  XcodeKit and the Xcode agents (AssetCatalogAgent).
-#       Developer/Platforms  Platform directories without their SDKs.
-#       Frameworks/          )
-#       SharedFrameworks/    ) The rpath roots the designer tools load their
-#       PlugIns/             ) implementations from (@executable_path/../../..).
+#     Xcode.app            A slimmed, ad-hoc re-signed copy of the input
+#                          Xcode: only the requested platforms (plus macOS)
+#                          are kept, the requested platforms' SDKs are
+#                          removed (they are vendored separately via the sdk
+#                          output and placed back at assembly time), and the
+#                          bundled apps are dropped. A real .app copy is
+#                          required for the designer tools (actool, ibtool),
+#                          which resolve their platform support relative to
+#                          the app bundle containing their binary.
 #
 #   sdk_output_path/
 #     <Platform><Version>.sdk    One per requested platform.
@@ -136,98 +133,58 @@ if [[ -n "$TOOLCHAIN_OUT" ]]; then
   prepare_output "$TOOLCHAIN_OUT"
   echo "==> Toolchain: $TOOLCHAIN_OUT"
 
-  # The artifact mirrors an Xcode.app bundle: everything lives under
-  # Xcode.app/Contents so that the designer tools' @executable_path-relative
-  # rpaths and the DVT plug-in machinery (which resolves resources relative
-  # to the containing app bundle) work no matter where the artifact is
-  # extracted. A top-level usr symlink provides Command Line Tools layout
-  # compatibility for xcrun and friends.
-  CONTENTS="$TOOLCHAIN_OUT/Xcode.app/Contents"
-  mkdir -p "$CONTENTS"
-  cp "$XCODE_PATH/Contents/Info.plist" "$XCODE_PATH/Contents/version.plist" "$CONTENTS/" 2>/dev/null || true
-
-  echo "  - XcodeDefault.xctoolchain/usr (compilers, linkers, Swift runtimes)"
-  copy_tree "$DEVELOPER/Toolchains/XcodeDefault.xctoolchain/usr" "$CONTENTS/Developer/usr"
-  ln -s Xcode.app/Contents/Developer/usr "$TOOLCHAIN_OUT/usr"
-
-  echo "  - Developer tools from Contents/Developer/usr (actool, ibtool, ...)"
-  # Merge into the toolchain's usr without overwriting: for the handful of
-  # names that exist in both (for example ld), the Contents/Developer/usr
-  # variant is a shim that relocates itself through xcrun and fails outside
-  # of a real Xcode installation, while the toolchain variant is the real
-  # tool. xcodebuild and xcrun are excluded: a Command Line Tools style
-  # developer directory intentionally has neither, and shipping them would
-  # move xcrun/xcode-select onto less well-trodden code paths.
-  TMP_DEV_USR=$(mktemp -d "${TMPDIR:-/tmp}/hermetic_dev_usr.XXXXXX")
-  trap 'rm -rf "$TMP_DEV_USR"' EXIT
-  ditto "$DEVELOPER/usr" "$TMP_DEV_USR"
-  rm -f "$TMP_DEV_USR/bin/xcodebuild" "$TMP_DEV_USR/bin/xcrun"
-  rsync -a --ignore-existing "$TMP_DEV_USR/" "$CONTENTS/Developer/usr/"
-
-  # Xcode's frameworks reference the toolchain through
-  # Developer/Toolchains/XcodeDefault.xctoolchain (for example the
-  # libclang.dylib symlink in Contents/Frameworks); expose the merged usr
-  # under that path so those references resolve inside the artifact.
-  mkdir -p "$CONTENTS/Developer/Toolchains/XcodeDefault.xctoolchain"
-  ln -s ../../usr "$CONTENTS/Developer/Toolchains/XcodeDefault.xctoolchain/usr"
-
-  echo "  - Frameworks, SharedFrameworks, PlugIns (rpath roots for the designer tools)"
-  copy_tree "$XCODE_PATH/Contents/Frameworks" "$CONTENTS/Frameworks"
-  copy_tree "$XCODE_PATH/Contents/SharedFrameworks" "$CONTENTS/SharedFrameworks"
-  copy_tree "$XCODE_PATH/Contents/PlugIns" "$CONTENTS/PlugIns"
-
-  echo "  - Developer/Library (XcodeKit, agents for the asset catalog tools)"
-  copy_tree "$DEVELOPER/Library/Frameworks" "$CONTENTS/Developer/Library/Frameworks"
-  copy_tree "$DEVELOPER/Library/Xcode" "$CONTENTS/Developer/Library/Xcode"
-
-  # The platform directories (minus their SDKs, which are vendored separately
-  # via the sdk output) provide the platform definitions and asset runtimes
-  # that the designer tools need to know a platform at all: ibtoold spawns
-  # AssetCatalogAgent from Developer/Library/Xcode/Agents against the
-  # platform's System/AssetRuntime, and treats platforms without them as
-  # unknown. macOS is always included for exec-platform tools.
-  IFS=',' read -ra toolchain_platform_list <<< "$PLATFORMS"
-  toolchain_platform_list+=("macosx")
-  seen_platforms=""
-  for platform in "${toolchain_platform_list[@]}"; do
-    dir_name=$(platform_dir_name "$platform")
-    case " $seen_platforms " in *" $dir_name "*) continue ;; esac
-    seen_platforms="$seen_platforms $dir_name"
-    src="$DEVELOPER/Platforms/${dir_name}.platform"
-    [[ -d "$src" ]] || continue
-    echo "  - Platforms/${dir_name}.platform (excluding SDKs)"
-    dst="$CONTENTS/Developer/Platforms/${dir_name}.platform"
-    mkdir -p "$dst/Developer"
-    for child in "$src"/*; do
-      name=$(basename "$child")
-      if [[ "$name" == "Developer" ]]; then
-        for dev_child in "$src/Developer"/*; do
-          dev_name=$(basename "$dev_child")
-          [[ "$dev_name" == "SDKs" ]] && continue
-          copy_tree "$dev_child" "$dst/Developer/$dev_name"
-        done
-      else
-        copy_tree "$child" "$dst/$name"
-      fi
-    done
-  done
-
-  # Xcode's toolchain binaries resolve llbuild.framework from
-  # Contents/SharedFrameworks via an Xcode.app-relative rpath that does not
-  # exist in this flat layout. The Command Line Tools solve the same problem
-  # by shipping the framework at usr/lib/swift/pm/llbuild, which is also on
-  # swift-driver's rpath list; mirror that with a relative symlink.
-  if [[ ! -e "$CONTENTS/Developer/usr/lib/swift/pm/llbuild/llbuild.framework" ]]; then
-    mkdir -p "$CONTENTS/Developer/usr/lib/swift/pm/llbuild"
-    ln -s ../../../../../../SharedFrameworks/llbuild.framework \
-      "$CONTENTS/Developer/usr/lib/swift/pm/llbuild/llbuild.framework"
+  # The toolchain artifact is a slimmed *real copy* of the Xcode.app bundle.
+  # This is load-bearing: Xcode's designer tools (actool/ibtoold) resolve
+  # their platform support relative to the app bundle containing their own
+  # (realpath-resolved) binary, and no symlink-reconstructed layout satisfies
+  # them. The copy is slimmed by deleting the platforms that were not
+  # requested, the requested platforms' SDKs (they are vendored separately
+  # via the sdk output and placed back at assembly time), and the bundled
+  # apps. macOS Gatekeeper treats a modified bundle pathologically on first
+  # launch (it appears to hang for many minutes), so the slimmed bundle is
+  # re-sealed with an ad-hoc signature, after which first launch takes
+  # seconds.
+  #
+  # The copy is built under a temporary name and only renamed to Xcode.app at
+  # the end: macOS restricts writing into .app bundles under some
+  # configurations, and nothing may modify the bundle after it is sealed.
+  WORK="$TOOLCHAIN_OUT/xcode_work"
+  echo "  - Copying $XCODE_PATH (APFS clone when possible)"
+  if ! cp -Rc "$XCODE_PATH" "$WORK" 2>/dev/null; then
+    rm -rf "$WORK"
+    ditto "$XCODE_PATH" "$WORK"
   fi
 
-  echo "  - MacOSX SDK (for exec-platform tools)"
-  macos_sdks="$DEVELOPER/Platforms/MacOSX.platform/Developer/SDKs"
-  mkdir -p "$TOOLCHAIN_OUT/SDKs"
-  macos_sdk_real=$(cd "$macos_sdks" && pwd -P)/$(readlink "$macos_sdks/MacOSX.sdk" 2>/dev/null || echo "MacOSX.sdk")
-  copy_tree "$macos_sdk_real" "$TOOLCHAIN_OUT/SDKs/MacOSX.sdk"
+  echo "  - Removing unrequested platforms and bundled applications"
+  IFS=',' read -ra keep_list <<< "$PLATFORMS"
+  keep_list+=("macosx")
+  keep_names=""
+  for platform in "${keep_list[@]}"; do
+    keep_names="$keep_names $(platform_dir_name "$platform").platform"
+  done
+  for platform_dir in "$WORK"/Contents/Developer/Platforms/*.platform; do
+    name=$(basename "$platform_dir")
+    case " $keep_names " in
+      *" $name "*) ;;
+      *) rm -rf "$platform_dir" ;;
+    esac
+  done
+  rm -rf "$WORK/Contents/Applications"
+
+  # Remove the requested platforms' SDKs; the developer directory assembly
+  # places the separately vendored SDKs back in these locations. The macOS
+  # SDK stays: it belongs to the toolchain (exec-platform tools need it, and
+  # ibtoold refuses to initialize without a macOS SDK).
+  for platform in "${keep_list[@]}"; do
+    [[ "$platform" == "macosx" ]] && continue
+    dir_name=$(platform_dir_name "$platform")
+    rm -rf "$WORK/Contents/Developer/Platforms/${dir_name}.platform/Developer/SDKs"
+  done
+
+  echo "  - Re-sealing the bundle (ad-hoc signature)"
+  codesign -f -s - "$WORK" 2>/dev/null || codesign -f -s - "$WORK"
+
+  mv "$WORK" "$TOOLCHAIN_OUT/Xcode.app"
 fi
 
 if [[ -n "$SDK_OUT" ]]; then
@@ -247,26 +204,62 @@ fi
 
 if [[ -n "$SIMULATOR_OUT" ]]; then
   SIMULATOR_OUT="$(resolve "$SIMULATOR_OUT")"
+  prepare_output "$SIMULATOR_OUT"
+  echo "==> Simulator runtimes: $SIMULATOR_OUT"
   found_runtime=""
+
+  # Old Xcodes bundled simulator runtimes inside the platform directories.
   for runtimes_dir in "$DEVELOPER"/Platforms/*.platform/Library/Developer/CoreSimulator/Profiles/Runtimes; do
     [[ -d "$runtimes_dir" ]] || continue
     for runtime in "$runtimes_dir"/*.simruntime; do
       [[ -e "$runtime" ]] || continue
-      if [[ -z "$found_runtime" ]]; then
-        prepare_output "$SIMULATOR_OUT"
-        echo "==> Simulator runtimes: $SIMULATOR_OUT"
-      fi
       found_runtime=1
-      echo "  - $(basename "$runtime")"
+      echo "  - $(basename "$runtime") (bundled)"
       copy_tree "$runtime" "$SIMULATOR_OUT/$(basename "$runtime")"
     done
   done
+
+  # Modern Xcode distributes simulator runtimes separately as cryptex disk
+  # images, registered with CoreSimulator via 'simctl runtime add'. Export
+  # any installed runtime image matching this Xcode's iOS SDK version so it
+  # can be re-hosted alongside the toolchain and SDKs.
+  ios_sdk_settings="$DEVELOPER/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/SDKSettings.plist"
+  ios_sdk_version=$(/usr/libexec/PlistBuddy -c 'Print :Version' "$ios_sdk_settings" 2>/dev/null || echo "")
+  if [[ -n "$ios_sdk_version" ]]; then
+    while IFS=$'\t' read -r version build image_path; do
+      [[ "$version" == "$ios_sdk_version" && -f "$image_path" ]] || continue
+      found_runtime=1
+      image_name="iOS_${version}_${build}.dmg"
+      echo "  - ${image_name} (installed runtime image, $(du -h "$image_path" 2>/dev/null | cut -f1 || echo "?"))"
+      cp -c "$image_path" "$SIMULATOR_OUT/$image_name" 2>/dev/null || cp "$image_path" "$SIMULATOR_OUT/$image_name"
+    done < <(xcrun simctl runtime list -j 2>/dev/null | /usr/bin/python3 -c '
+import json, sys
+for r in json.load(sys.stdin).values():
+    if r.get("platformIdentifier", "").endswith("iphonesimulator") and r.get("path"):
+        print("\t".join([r.get("version", ""), r.get("build", ""), r["path"]]))
+')
+  fi
+
+  cat > "$SIMULATOR_OUT/README.md" <<'EOF'
+# Simulator runtimes
+
+Simulator runtimes are cryptex disk images distributed separately from Xcode
+(Xcode Settings > Components, `xcodebuild -downloadPlatform iOS`, or
+developer.apple.com/download). They are only needed to *run* apps in a
+simulator, not to build them.
+
+Install an image on another machine with:
+
+    xcrun simctl runtime add <image>.dmg
+
+Note that apps built with a newer SDK run on older simulator runtimes as long
+as their minimum OS version allows it.
+EOF
+
   if [[ -z "$found_runtime" ]]; then
-    echo "==> Simulator runtimes: none bundled in this Xcode."
-    echo "    Modern Xcode distributes simulator runtimes separately as disk"
-    echo "    images (Xcode Settings > Components, xcodebuild -downloadPlatform"
-    echo "    iOS, or developer.apple.com/download). Those images can be"
-    echo "    re-hosted as-is and installed with 'xcrun simctl runtime add'."
+    echo "    (none found: this Xcode bundles no runtimes and no matching"
+    echo "     runtime image is installed; see the README for how runtimes"
+    echo "     are distributed)"
   fi
 fi
 

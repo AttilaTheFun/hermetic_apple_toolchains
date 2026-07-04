@@ -1,5 +1,5 @@
 # The user of this repository must have accepted Apple's software license
-# agreements for the vendored Xcode / Command Line Tools / SDK artifacts.
+# agreements for the vendored Xcode / SDK artifacts.
 common --repo_env=ACCEPTED_APPLE_SLA=1
 
 # Resolve Xcode versions through the hermetic developer directories instead of
@@ -16,6 +16,5 @@ build --ios_multi_cpus=sim_arm64
 
 # Convenience configs for switching between toolchain/SDK pairs. Equivalent to
 # passing --xcode_version directly.
-build:xcode26 --xcode_version=xcode26_ios26_5
+build:xcode26 --xcode_version=xcode26_5_ios26_5
 build:xcode27beta2 --xcode_version=xcode27beta2_ios27
-build:xcode27beta2full --xcode_version=xcode27beta2_full_ios27
