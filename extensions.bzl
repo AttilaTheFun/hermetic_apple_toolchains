@@ -151,6 +151,7 @@ def _apple_impl(module_ctx):
     apple_xcode_config_repository(
         name = "apple_toolchains",
         xcode_repos = xcode_repos,
+        xcode_repo_files = ["@{}//:BUILD.bazel".format(repo) for repo in xcode_repos],
         simulator_runtime_repos = runtime_repos,
         default_xcode_repo = default_repo or xcode_repos[0],
     )
