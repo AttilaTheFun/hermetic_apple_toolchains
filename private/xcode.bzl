@@ -24,10 +24,8 @@ accept` per machine and agreement revision.
 
 load(
     ":utils.bzl",
-    "APPLE_SLA_ENV",
     "SDK_PLATFORMS",
     "read_sdk_settings",
-    "require_apple_sla",
 )
 
 _BUILD_TEMPLATE = """\
@@ -68,6 +66,17 @@ sh_binary(
     name = "first_launch",
     srcs = ["first_launch.sh"],
 )
+
+# Opens this Xcode's GUI.
+sh_binary(
+    name = "open",
+    srcs = ["open_xcode.sh"],
+)
+"""
+
+_OPEN_TEMPLATE = """\
+#!/bin/bash
+exec /usr/bin/open "{app}"
 """
 
 _FIRST_LAUNCH_TEMPLATE = """\
@@ -78,9 +87,29 @@ _FIRST_LAUNCH_TEMPLATE = """\
 
 set -euo pipefail
 
-DEV="{app}/Contents/Developer"
+APP="{app}"
+DEV="$APP/Contents/Developer"
+PKG="$APP/Contents/Resources/Packages/XcodeSystemResources.pkg"
 
-echo "Installing Xcode system support components from $DEV."
+# `xcodebuild -runFirstLaunch` reports "nothing to do" as long as *some*
+# generation of the system components is installed, so it never upgrades
+# them — but booting this Xcode's (beta) simulator runtimes requires *its*
+# CoreSimulator, or boots fail with "runtime path not found". Compare the
+# installed package version with the one this Xcode ships and install the
+# shipped package directly when it is newer.
+shipped=$(cd "$(mktemp -d)" && /usr/bin/xar -xf "$PKG" PackageInfo && \\
+    grep -o 'version="[0-9][0-9.]*"' PackageInfo | grep -o '[0-9][0-9.]*' | sort -V | tail -1)
+installed=$(pkgutil --pkg-info com.apple.pkg.XcodeSystemResources 2>/dev/null | \\
+    sed -n 's/^version: //p')
+installed="${{installed:-0}}"
+
+if [[ "$(printf '%s\\n%s\\n' "$shipped" "$installed" | sort -V | tail -1)" == "$installed" ]]; then
+  echo "Xcode system support components $installed are already installed" \\
+      "(this Xcode ships $shipped)."
+  exit 0
+fi
+
+echo "Installing Xcode system support components $shipped (installed: $installed)."
 echo "This records system-wide state and requires sudo."
 
 if [[ ! -t 0 ]]; then
@@ -88,9 +117,15 @@ if [[ ! -t 0 ]]; then
   echo "No terminal is attached, so sudo cannot prompt for your password."
   echo "Run this from a terminal instead:"
   echo ""
-  echo "    sudo env DEVELOPER_DIR='$DEV' '$DEV/usr/bin/xcodebuild' -runFirstLaunch"
+  echo "    sudo /usr/sbin/installer -pkg '$PKG' -target /"
   exit 1
 fi
+
+sudo /usr/sbin/installer -pkg "$PKG" -target /
+
+# Restart CoreSimulatorService so running simulators pick up the new
+# CoreSimulator framework.
+sudo pkill -f com.apple.CoreSimulator.CoreSimulatorService 2>/dev/null || true
 
 exec sudo env DEVELOPER_DIR="$DEV" "$DEV/usr/bin/xcodebuild" -runFirstLaunch
 """
@@ -174,8 +209,6 @@ def _default_sdk_versions(rctx, developer):
     return attrs
 
 def _apple_xcode_repository_impl(rctx):
-    require_apple_sla(rctx, "Xcode")
-
     if rctx.attr.path:
         if rctx.attr.url:
             fail("apple.xcode(name = {}): path and url are mutually exclusive".format(
@@ -247,6 +280,11 @@ def _apple_xcode_repository_impl(rctx):
         _FIRST_LAUNCH_TEMPLATE.format(app = str(rctx.path("Xcode.app"))),
         executable = True,
     )
+    rctx.file(
+        "open_xcode.sh",
+        _OPEN_TEMPLATE.format(app = str(rctx.path("Xcode.app"))),
+        executable = True,
+    )
     rctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(
         version = repr(str(developer)),
         aliases = repr(sorted(aliases.keys())),
@@ -258,7 +296,6 @@ def _apple_xcode_repository_impl(rctx):
 
 apple_xcode_repository = repository_rule(
     doc = "Vendors a verbatim Xcode.app as a hermetic, selectable Xcode version.",
-    environ = [APPLE_SLA_ENV],
     implementation = _apple_xcode_repository_impl,
     attrs = {
         "path": attr.string(

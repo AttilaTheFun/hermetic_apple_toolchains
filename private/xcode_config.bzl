@@ -36,6 +36,8 @@ def _apple_xcode_config_repository_impl(rctx):
 
     aliases = []
     for repo in rctx.attr.xcode_repos:
+        # `bazel run @apple_toolchains//:<name>` opens the Xcode's GUI.
+        aliases.append(alias(repo, "@{}//:open".format(repo)))
         aliases.append(alias("accept_license_" + repo, "@{}//:accept_license".format(repo)))
         aliases.append(alias("first_launch_" + repo, "@{}//:first_launch".format(repo)))
         aliases.append(alias("with_developer_dir_" + repo, "@{}//:with_developer_dir".format(repo)))

@@ -1,7 +1,3 @@
-# The user of this repository must have accepted Apple's software license
-# agreements for the vendored Xcode artifacts.
-common --repo_env=ACCEPTED_APPLE_SLA=1
-
 # Resolve Xcode versions through the hermetic Xcodes instead of locally
 # installed ones. Both the native flag and its Starlark counterpart must be
 # set while apple_support's migration off the native apple fragment is in

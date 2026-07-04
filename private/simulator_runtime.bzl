@@ -13,12 +13,6 @@ CoreSimulator copies the runtime into its own store — and is idempotent: the
 runnable no-ops when a runtime with the same build is already registered.
 """
 
-load(
-    ":utils.bzl",
-    "APPLE_SLA_ENV",
-    "require_apple_sla",
-)
-
 _BUILD = """\
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
@@ -61,8 +55,6 @@ exec env DEVELOPER_DIR="$DEV" "$DEV/usr/bin/xcodebuild" -importPlatform "$DMG"
 """
 
 def _apple_simulator_runtime_repository_impl(rctx):
-    require_apple_sla(rctx, "the simulator runtime")
-
     if rctx.attr.path:
         if rctx.attr.url:
             fail("apple.simulator_runtime(name = {}): path and url are mutually exclusive".format(
@@ -112,7 +104,6 @@ def _apple_simulator_runtime_repository_impl(rctx):
 
 apple_simulator_runtime_repository = repository_rule(
     doc = "Vendors a simulator runtime disk image with an install runnable.",
-    environ = [APPLE_SLA_ENV],
     implementation = _apple_simulator_runtime_repository_impl,
     attrs = {
         "path": attr.string(

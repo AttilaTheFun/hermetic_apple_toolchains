@@ -29,7 +29,6 @@ Example:
 
 And in .bazelrc:
 
-    common --repo_env=ACCEPTED_APPLE_SLA=1
     build --xcode_version_config=@apple_toolchains//:xcode_config
     build --@apple_support//xcode:starlark_version_config=@apple_toolchains//:xcode_config
 

@@ -35,11 +35,15 @@ apps in a simulator.
        --use-compress-program=zstd -C /path/to/dir Xcode.app
    ```
 
-   (To export a verbatim copy from a machine that already has Xcode
-   installed, `bazel run @hermetic_apple_toolchains//scripts:create_hermetic_toolchain --
-   --xcode_path /Applications/Xcode.app --xcode_output_path <dir>/Xcode.app`.)
+   To export a verbatim copy from a machine that already has Xcode
+   installed:
+   
+   ```
+   bazel run @hermetic_apple_toolchains//scripts:create_hermetic_toolchain -- \
+   --xcode_path /Applications/Xcode.app --xcode_output_path <dir>/Xcode.app
+   ```
 
-### Registering it
+### Registering an Xcode
 
 `MODULE.bazel`:
 
@@ -80,10 +84,6 @@ override_repo(swift_non_module_deps, rules_swift_local_config = "hermetic_swift_
 `.bazelrc`:
 
 ```
-# Acknowledge that you have accepted Apple's license agreements for the
-# artifacts you point this module at (see Licensing).
-common --repo_env=ACCEPTED_APPLE_SLA=1
-
 # Resolve Xcode through the registered hermetic Xcodes. (Both flags are
 # needed while apple_support migrates off Bazel's native apple fragment.)
 build --xcode_version_config=@apple_toolchains//:xcode_config
@@ -94,7 +94,7 @@ build:xcode26 --xcode_version=xcode26_5
 build:xcode27beta2 --xcode_version=xcode27beta2
 ```
 
-### Using it
+### Using an Xcode
 
 Once per machine and per license agreement revision (GM and Beta agreements
 are tracked separately by macOS), accept the Xcode license:
@@ -111,6 +111,13 @@ the Xcode, and everything — compilers, SDKs, resource tools, and the
 Building for simulator and device both work with just the above. Running on
 a physical device uses your normal signing/provisioning setup.
 
+To open an Xcode's GUI (for example to use Instruments or browse
+documentation), run its bare name:
+
+```
+bazel run @apple_toolchains//:xcode27beta2
+```
+
 ## Simulator (optional)
 
 Only needed to *run* apps in a simulator on a machine without Xcode
@@ -121,7 +128,7 @@ that an app built with a newer SDK runs on an older runtime as long as its
 minimum OS version allows (for example, an iOS 27 SDK build with
 `minimum_os_version = 26.0` runs on the iOS 26.5 runtime).
 
-### Preparing a runtime
+### Preparing a simulator runtime
 
 Download the runtime matching an Xcode and export it as a re-hostable image
 (~8 GB; requires that Xcode's license to be accepted):
@@ -138,7 +145,7 @@ your Xcode archives. (Without `--download_platform`, the script instead
 exports runtimes already present on the machine: images bundled inside old
 Xcodes, or the installed runtime matching the Xcode's iOS version.)
 
-### Registering it
+### Registering a simulator runtime
 
 ```starlark
 apple.simulator_runtime(
@@ -161,7 +168,7 @@ run:xcode27beta2 --run_under=@apple_toolchains//:with_developer_dir_xcode27beta2
 run:xcode27beta2 --ios_simulator_version=27.0
 ```
 
-### Using it
+### Using a simulator runtime
 
 Once per machine:
 
@@ -187,8 +194,7 @@ Apple's license agreements do not permit redistributing Xcode or its
 components to parties who have not accepted them; organizations that *have*
 accepted them may re-host copies for their own use. This module never
 downloads anything from Apple on your behalf — you point it at artifacts you
-are licensed to use (`--repo_env=ACCEPTED_APPLE_SLA=1` acknowledges this),
-and each machine additionally accepts the Xcode license itself via
+are licensed to use, and each machine accepts the Xcode license itself via
 `:accept_license_<name>`, exactly as with an installed Xcode.
 
 ## Notes and limitations
