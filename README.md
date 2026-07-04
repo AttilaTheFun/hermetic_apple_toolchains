@@ -139,6 +139,38 @@ The runnable also pre-records the GUI's one-time first-launch state (the
 splash), so the Xcode opens without prompting — simulator runtimes and the
 Metal Toolchain are provided by their tags instead.
 
+### Running tools against a hermetic Xcode
+
+The `with_developer_dir_<xcode>` target runs any command with
+`DEVELOPER_DIR` pointing at that hermetic Xcode. It exists for two
+purposes:
+
+1. **`bazel run` launchers** (its role in the `.bazelrc` configs above):
+   `--xcode_version` only governs build actions. Tools that run *after*
+   the build — rules_apple's simulator runner, rules_xcodeproj's project
+   generator — discover Xcode themselves via `xcode-select -p`, which
+   honors `DEVELOPER_DIR`. The `--run_under` wrapper points them at the
+   hermetic Xcode instead of whatever the host has selected.
+
+2. **Ad-hoc commands**, without ever needing to know where Bazel cached
+   the Xcode:
+
+   ```
+   bazel run @apple_toolchains//:with_developer_dir_xcode27beta2 -- xcrun simctl list devices
+   bazel run @apple_toolchains//:with_developer_dir_xcode26_5 -- xcrun --sdk iphonesimulator --show-sdk-path
+   bazel run @apple_toolchains//:with_developer_dir_xcode27beta2 -- $SHELL
+   ```
+
+   The last form spawns an interactive shell in which every `xcrun`,
+   `xcodebuild`, and `simctl` resolves through the hermetic Xcode — handy
+   for exploratory work without per-command Bazel overhead.
+
+Note that `bazel run` executes from the runfiles tree, so relative paths
+in the command's arguments do not resolve against your shell's working
+directory: use absolute paths (or the shell form, and `cd` afterwards).
+For Xcode 27+ the wrapper also exposes a `Simulator.app` borrowed from
+another registered Xcode, since the beta no longer bundles one.
+
 ### Metal Toolchain (optional)
 
 Since Xcode 26, the Metal shader compiler is a separate download — it's the
