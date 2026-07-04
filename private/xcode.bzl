@@ -79,6 +79,17 @@ fi
 
 echo "Accepting Xcode license $license_id ($license_type) for $APP."
 echo "This records acceptance system-wide and requires sudo."
+
+if [[ ! -t 0 ]]; then
+  echo ""
+  echo "No terminal is attached, so sudo cannot prompt for your password."
+  echo "Run this from a terminal instead:"
+  echo ""
+  echo "    sudo env DEVELOPER_DIR='$APP/Contents/Developer' \\\\"
+  echo "        '$APP/Contents/Developer/usr/bin/xcodebuild' -license accept"
+  exit 1
+fi
+
 exec sudo env DEVELOPER_DIR="$APP/Contents/Developer" \\
     "$APP/Contents/Developer/usr/bin/xcodebuild" -license accept
 """
