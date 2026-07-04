@@ -28,26 +28,36 @@ xcode_config(
 # Simulator GUI from that fixed location, so expose a developer-dir view
 # that symlinks the real developer dir and borrows Simulator.app from
 # another registered Xcode. The view lives outside Xcode.app, keeping the
-# bundle verbatim (and its notarized seal intact).
+# bundle verbatim (and its notarized seal intact), and mirrors the
+# Xcode.app/Contents/Developer layout: tools validate the app-style shape
+# (rules_xcodeproj reads ../version.plist, xcrun keys license enforcement
+# off the .app path).
 _RUNNER_VIEW_WRAPPER_TEMPLATE = """\
 #!/bin/bash
 DEV="{developer_dir}"
 if [[ ! -e "$DEV/Applications/Simulator.app" ]]; then
-  VIEW="${{TMPDIR:-/tmp}}/hermetic_xcode_runner_view_{name}"
-  mkdir -p "$VIEW/Applications"
+  APP="{app}"
+  VIEW="${{TMPDIR:-/tmp}}/hermetic_xcode_runner_view_{name}/Xcode.app"
+  mkdir -p "$VIEW/Contents/Developer/Applications"
+  for entry in "$APP/Contents"/*; do
+    base="$(basename "$entry")"
+    if [[ "$base" != "Developer" ]]; then
+      ln -sfn "$entry" "$VIEW/Contents/$base"
+    fi
+  done
   for entry in "$DEV"/*; do
     base="$(basename "$entry")"
     if [[ "$base" != "Applications" ]]; then
-      ln -sfn "$entry" "$VIEW/$base"
+      ln -sfn "$entry" "$VIEW/Contents/Developer/$base"
     fi
   done
   if [[ -d "$DEV/Applications" ]]; then
     for entry in "$DEV/Applications"/*; do
-      ln -sfn "$entry" "$VIEW/Applications/$(basename "$entry")"
+      ln -sfn "$entry" "$VIEW/Contents/Developer/Applications/$(basename "$entry")"
     done
   fi
-  ln -sfn "{donor_simulator_app}" "$VIEW/Applications/Simulator.app"
-  DEV="$VIEW"
+  ln -sfn "{donor_simulator_app}" "$VIEW/Contents/Developer/Applications/Simulator.app"
+  DEV="$VIEW/Contents/Developer"
 fi
 export DEVELOPER_DIR="$DEV"
 exec "$@"
@@ -106,6 +116,7 @@ def _apple_xcode_config_repository_impl(rctx):
                 script,
                 _RUNNER_VIEW_WRAPPER_TEMPLATE.format(
                     name = repo,
+                    app = str(developer_dirs[repo].dirname.dirname),
                     developer_dir = str(developer_dirs[repo]),
                     donor_simulator_app = str(donor),
                 ),
