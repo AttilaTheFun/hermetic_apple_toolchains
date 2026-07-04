@@ -16,8 +16,8 @@ bazel_dep(name = "rules_shell", version = "0.6.1")
 bazel_dep(name = "rules_apple", version = "4.1.1", dev_dependency = True)
 bazel_dep(name = "rules_swift", version = "4.0.0-rc3", dev_dependency = True)
 
-# The hermetic developer directory support requires changes that are not yet
-# upstream; see the hermetic-developer-dirs branches in these forks.
+# The hermetic developer directory support requires two small apple_support
+# changes that are not yet upstream; see the hermetic-developer-dirs branch.
 local_path_override(
     module_name = "apple_support",
     path = "../apple_support",
@@ -30,50 +30,18 @@ local_path_override(
 
 # Example configuration for this machine, used to build //examples/... These
 # tags are what users of this module would write in their own MODULE.bazel,
-# pointing at artifacts they re-host (either local paths or URLs on servers
-# they manage). The artifacts were produced from downloaded Xcode.app bundles
-# with:
-#
-#   bazel run //scripts:create_hermetic_toolchain -- \
-#       --xcode_path <Xcode.app> \
-#       --toolchain_output_path ~/Downloads/hermetic/<version>/toolchain \
-#       --sdk_output_path ~/Downloads/hermetic/<version>/sdks \
-#       --simulator_output_path ~/Downloads/hermetic/<version>/simulators
+# pointing at verbatim Xcode.app copies they re-host (either local paths or
+# archives on servers they manage).
 apple = use_extension("//:extensions.bzl", "apple", dev_dependency = True)
-apple.toolchain(
+apple.xcode(
     name = "xcode26_5",
-    path = "/Users/logan/Downloads/hermetic/xcode_26_5/toolchain",
-)
-apple.toolchain(
-    name = "xcode27beta2",
-    path = "/Users/logan/Downloads/hermetic/xcode_27_beta_2/toolchain",
-)
-apple.sdk(
-    name = "ios26_5",
-    paths = {
-        "iphoneos": "/Users/logan/Downloads/hermetic/xcode_26_5/sdks/iPhoneOS26.5.sdk",
-        "iphonesimulator": "/Users/logan/Downloads/hermetic/xcode_26_5/sdks/iPhoneSimulator26.5.sdk",
-    },
-)
-apple.sdk(
-    name = "ios27",
-    paths = {
-        "iphoneos": "/Users/logan/Downloads/hermetic/xcode_27_beta_2/sdks/iPhoneOS27.0.sdk",
-        "iphonesimulator": "/Users/logan/Downloads/hermetic/xcode_27_beta_2/sdks/iPhoneSimulator27.0.sdk",
-    },
-)
-apple.developer_dir(
-    name = "xcode26_5_ios26_5",
     aliases = ["xcode26"],
     default = True,
-    sdk = "ios26_5",
-    toolchain = "xcode26_5",
+    path = "/Users/logan/Downloads/hermetic/xcode_26_5/Xcode.app",
 )
-apple.developer_dir(
-    name = "xcode27beta2_ios27",
-    aliases = ["xcode27beta2"],
-    sdk = "ios27",
-    toolchain = "xcode27beta2",
+apple.xcode(
+    name = "xcode27beta2",
+    path = "/Users/logan/Downloads/hermetic/xcode_27_beta_2/Xcode.app",
 )
 use_repo(apple, "apple_toolchains", "hermetic_apple_cc", "hermetic_swift_config")
 

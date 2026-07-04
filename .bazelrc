@@ -1,12 +1,12 @@
 # The user of this repository must have accepted Apple's software license
-# agreements for the vendored Xcode / SDK artifacts.
+# agreements for the vendored Xcode artifacts.
 common --repo_env=ACCEPTED_APPLE_SLA=1
 
-# Resolve Xcode versions through the hermetic developer directories instead of
-# locally installed Xcodes. Both the native flag and its Starlark counterpart
-# must be set while apple_support's migration off the native apple fragment is
-# in progress: rules read whichever one is active for the current Bazel
-# version, but both are analyzed.
+# Resolve Xcode versions through the hermetic Xcodes instead of locally
+# installed ones. Both the native flag and its Starlark counterpart must be
+# set while apple_support's migration off the native apple fragment is in
+# progress: rules read whichever one is active for the current Bazel version,
+# but both are analyzed.
 build --xcode_version_config=@apple_toolchains//:xcode_config
 build --@apple_support//xcode:starlark_version_config=@apple_toolchains//:xcode_config
 
@@ -14,7 +14,7 @@ build --@apple_support//xcode:starlark_version_config=@apple_toolchains//:xcode_
 # launched on a local simulator.
 build --ios_multi_cpus=sim_arm64
 
-# Convenience configs for switching between toolchain/SDK pairs. Equivalent to
-# passing --xcode_version directly.
-build:xcode26 --xcode_version=xcode26_5_ios26_5
-build:xcode27beta2 --xcode_version=xcode27beta2_ios27
+# Convenience configs for switching Xcodes. Equivalent to passing
+# --xcode_version directly.
+build:xcode26 --xcode_version=xcode26_5
+build:xcode27beta2 --xcode_version=xcode27beta2
