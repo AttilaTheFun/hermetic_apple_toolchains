@@ -106,7 +106,9 @@ bazel run @apple_toolchains//:accept_license_xcode26_5    # prompts for sudo
 The runnable is a no-op when the agreement is already accepted. After that,
 build normally; `--xcode_version=<name or alias>` (or your configs) selects
 the Xcode, and everything — compilers, SDKs, resource tools, and the
-`DTXcode`/`DTSDKBuild` values stamped into `Info.plist` — follows it.
+`DTXcode`/`DTSDKBuild` values stamped into `Info.plist` — follows it. Each
+Xcode also answers to its version and build numbers (for example
+`--xcode_version=26.5` or `17F42`) in addition to its name and aliases.
 
 Building for simulator and device both work with just the above. Running on
 a physical device uses your normal signing/provisioning setup.
@@ -161,10 +163,11 @@ bazel run @apple_toolchains//:install_component_metal_toolchain_27
 ### Xcode projects (rules_xcodeproj)
 
 Generated projects work with hermetic Xcodes: rules_xcodeproj selects the
-Xcode to build with by build number (for example `17F42`), and hermetic
-Xcodes answer to their version and build numbers as `--xcode_version`
-aliases. One attribute must be set explicitly, since its default derives
-from the resolved Xcode's "version" — which is a path for hermetic Xcodes:
+Xcode to build with by build number (for example `17F42`), which hermetic
+Xcodes accept. Give top-level targets
+`visibility = ["@rules_xcodeproj//xcodeproj:generated"]`, and set one
+attribute explicitly, since its default derives from the resolved Xcode's
+"version" — which is a path for hermetic Xcodes:
 
 ```starlark
 xcodeproj(
@@ -193,7 +196,7 @@ minimum OS version allows (for example, an iOS 27 SDK build with
 ### Preparing a simulator runtime
 
 Download the runtime matching an Xcode and export it as a re-hostable image
-(~8 GB; requires that Xcode's license to be accepted):
+(~8 GB; requires that the Xcode's license has been accepted):
 
 ```
 bazel run @hermetic_apple_toolchains//scripts:create_hermetic_toolchain -- \
@@ -238,7 +241,10 @@ Once per machine:
 # Install the Xcode generation's simulator system components (CoreSimulator
 # framework; prompts for sudo). Required before beta runtimes will boot on a
 # machine that has only seen older Xcodes, and on machines that never had
-# any Xcode installed.
+# any Xcode installed. (The runnable installs the components package
+# directly when the Xcode ships a newer one — `xcodebuild -runFirstLaunch`
+# alone never upgrades across Xcode generations, and without the upgrade
+# beta runtimes fail to boot with "runtime path not found".)
 bazel run @apple_toolchains//:first_launch_xcode27beta2
 
 # Register the runtime with CoreSimulator. Idempotent; macOS shows an admin
@@ -249,6 +255,12 @@ bazel run @apple_toolchains//:install_runtime_ios27_runtime
 
 Then `bazel run //app:ios_app --config=xcode27beta2` boots a simulator on
 the matching runtime, installs the app, launches it, and streams its logs.
+
+Note for Xcode 27+: the Simulator GUI (`Simulator.app`) no longer ships
+inside the Xcode bundle, but rules_apple's runner launches it from there.
+The `with_developer_dir_<name>` wrapper transparently borrows
+`Simulator.app` from another registered Xcode that has one — so to `bazel
+run` apps under an Xcode 27 toolchain, also register an Xcode 26.x.
 
 ## Licensing
 
