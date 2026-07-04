@@ -168,7 +168,15 @@ as with an installed Xcode.
   the crosstool configuration, and path-valued Xcode version handling in two
   feature checks — following the same convention Apple contributed to
   `xcode_support` and rules_swift). No rules_apple or rules_swift changes are
-  needed.
+  needed. Until the changes land upstream, consumers add:
+
+  ```starlark
+  git_override(
+      module_name = "apple_support",
+      remote = "https://github.com/AttilaTheFun/apple_support.git",
+      commit = "92ebd80ca6a43335e8453e9640dee100bf1291f8",
+  )
+  ```
 * One-time, per-machine `sudo` for the license acceptance of each new
   agreement revision.
 * macOS host tools that are part of the OS are still used (`/usr/bin/xcrun`,

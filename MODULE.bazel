@@ -13,19 +13,14 @@ bazel_dep(name = "bazel_features", version = "1.47.0")
 bazel_dep(name = "rules_cc", version = "0.2.19")
 bazel_dep(name = "rules_shell", version = "0.6.1")
 
-bazel_dep(name = "rules_apple", version = "4.1.1", dev_dependency = True)
+bazel_dep(name = "rules_apple", version = "4.5.3", dev_dependency = True)
 bazel_dep(name = "rules_swift", version = "4.0.0-rc3", dev_dependency = True)
 
-# The hermetic developer directory support requires two small apple_support
-# changes that are not yet upstream; see the hermetic-developer-dirs branch.
+# The hermetic Xcode support requires two small apple_support changes that
+# are not yet upstream; see the hermetic-developer-dirs branch of the fork.
 local_path_override(
     module_name = "apple_support",
     path = "../apple_support",
-)
-
-local_path_override(
-    module_name = "rules_apple",
-    path = "../rules_apple",
 )
 
 # Example configuration for this machine, used to build //examples/... These
