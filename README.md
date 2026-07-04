@@ -274,8 +274,9 @@ Apple's license agreements do not permit redistributing Xcode or its
 components to parties who have not accepted them; organizations that *have*
 accepted them may re-host copies for their own use. This module never
 downloads anything from Apple on your behalf — you point it at artifacts you
-are licensed to use, and each machine accepts the Xcode license itself via
-`:accept_license_<name>`, exactly as with an installed Xcode.
+are licensed to use, and each machine accepts the Xcode license itself (the
+`prepare_<xcode>` runnable's first step), exactly as with an installed
+Xcode.
 
 ## Notes and limitations
 
