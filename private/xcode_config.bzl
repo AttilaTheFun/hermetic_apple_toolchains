@@ -114,6 +114,8 @@ def _apple_xcode_config_repository_impl(rctx):
             aliases.append(sh_binary("with_developer_dir_" + repo, script))
     for repo in rctx.attr.simulator_runtime_repos:
         aliases.append(alias("install_runtime_" + repo, "@{}//:install".format(repo)))
+    for repo in rctx.attr.component_repos:
+        aliases.append(alias("install_component_" + repo, "@{}//:install".format(repo)))
 
     rctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(
         default = repr(default),
@@ -135,6 +137,9 @@ apple_xcode_config_repository = repository_rule(
         ),
         "simulator_runtime_repos": attr.string_list(
             doc = "Names of the simulator runtime repositories.",
+        ),
+        "component_repos": attr.string_list(
+            doc = "Names of the Xcode component repositories.",
         ),
         "default_xcode_repo": attr.string(
             doc = "Xcode used when --xcode_version is not passed.",

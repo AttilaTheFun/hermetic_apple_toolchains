@@ -7,7 +7,9 @@
 #       --xcode_path ~/Downloads/Xcode-beta.app \
 #       [--xcode_output_path /path/to/out/Xcode.app] \
 #       [--simulator_output_path /path/to/out/simulators] \
-#       [--download_platform iOS]
+#       [--download_platform iOS] \
+#       [--component_output_path /path/to/out/components] \
+#       [--download_component MetalToolchain]
 #
 # Outputs:
 #   xcode_output_path        A verbatim copy of the input Xcode.app (an APFS
@@ -34,6 +36,16 @@
 #                            apple.simulator_runtime tag (or manually with
 #                            `xcrun simctl runtime add <image>.dmg`).
 #
+#   component_output_path/   Downloadable Xcode components, with
+#                            --download_component (repeatable). Since
+#                            Xcode 26, the Metal Toolchain is a separate
+#                            download that the Xcode GUI prompts for on
+#                            first launch; vendor it and register it with
+#                            the apple.component tag so the prompt never
+#                            appears. Exported as
+#                            <Component>_<build>.exportedBundle, importable
+#                            with `xcodebuild -importComponent`.
+#
 # Register the Xcode with hermetic_apple_toolchains:
 #
 #   apple.xcode(name = "...", path = "<xcode_output_path>")
@@ -45,9 +57,11 @@ XCODE_PATH=""
 XCODE_OUT=""
 SIMULATOR_OUT=""
 DOWNLOAD_PLATFORM=""
+COMPONENT_OUT=""
+DOWNLOAD_COMPONENTS=()
 
 usage() {
-  sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -66,6 +80,8 @@ while [[ $# -gt 0 ]]; do
     --xcode_output_path) XCODE_OUT="$value" ;;
     --simulator_output_path) SIMULATOR_OUT="$value" ;;
     --download_platform) DOWNLOAD_PLATFORM="$value" ;;
+    --component_output_path) COMPONENT_OUT="$value" ;;
+    --download_component) DOWNLOAD_COMPONENTS+=("$value") ;;
     *) echo "Unknown argument: $arg" >&2; usage ;;
   esac
   shift
@@ -83,8 +99,11 @@ resolve() {
 }
 
 [[ -n "$XCODE_PATH" ]] || { echo "error: --xcode_path is required" >&2; usage; }
-[[ -n "$XCODE_OUT" || -n "$SIMULATOR_OUT" ]] || {
+[[ -n "$XCODE_OUT" || -n "$SIMULATOR_OUT" || -n "$COMPONENT_OUT" ]] || {
   echo "error: at least one output path is required" >&2; usage;
+}
+[[ ${#DOWNLOAD_COMPONENTS[@]} -eq 0 || -n "$COMPONENT_OUT" ]] || {
+  echo "error: --component_output_path is required with --download_component" >&2; usage;
 }
 
 XCODE_PATH="$(resolve "$XCODE_PATH")"
@@ -194,6 +213,37 @@ EOF
     echo "     runtime image is installed; see the README for how runtimes"
     echo "     are distributed)"
   fi
+fi
+
+if [[ -n "$COMPONENT_OUT" && ${#DOWNLOAD_COMPONENTS[@]} -gt 0 ]]; then
+  COMPONENT_OUT="$(resolve "$COMPONENT_OUT")"
+  mkdir -p "$COMPONENT_OUT"
+  echo "==> Components: $COMPONENT_OUT"
+  for component in "${DOWNLOAD_COMPONENTS[@]}"; do
+    build=$(env DEVELOPER_DIR="$DEVELOPER" "$DEVELOPER/usr/bin/xcodebuild" \
+      -showComponent "$component" -json 2>/dev/null | \
+      /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("buildVersion", ""))' \
+      2>/dev/null || echo "")
+    echo "  - Downloading $component${build:+ ($build)} via xcodebuild (large)..."
+    tmp="$COMPONENT_OUT/.export_$$"
+    mkdir -p "$tmp"
+    env DEVELOPER_DIR="$DEVELOPER" "$DEVELOPER/usr/bin/xcodebuild" \
+      -downloadComponent "$component" \
+      -exportPath "$tmp"
+    # Normalize the export to <Component>_<build>.<same extension>.
+    exported=$(ls -d "$tmp"/* 2>/dev/null | head -1)
+    if [[ -z "$exported" ]]; then
+      echo "error: xcodebuild exported nothing for $component" >&2
+      rm -rf "$tmp"
+      exit 1
+    fi
+    ext="${exported##*.}"
+    out_name="${component}${build:+_$build}.${ext}"
+    echo "  - ${out_name}"
+    rm -rf "${COMPONENT_OUT:?}/${out_name}"
+    mv "$exported" "$COMPONENT_OUT/$out_name"
+    rm -rf "$tmp"
+  done
 fi
 
 echo ""

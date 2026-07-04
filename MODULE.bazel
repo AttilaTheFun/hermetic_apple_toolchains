@@ -39,6 +39,16 @@ apple.xcode(
     name = "xcode27beta2",
     path = "/Users/logan/Downloads/hermetic/xcode_27_beta_2/Xcode.app",
 )
+apple.component(
+    name = "metal_toolchain_26_5",
+    path = "/Users/logan/Downloads/hermetic/xcode_26_5/components/MetalToolchain_17F42.exportedBundle",
+    xcode = "xcode26_5",
+)
+apple.component(
+    name = "metal_toolchain_27",
+    path = "/Users/logan/Downloads/hermetic/xcode_27_beta_2/components/MetalToolchain_27A5209h.exportedBundle",
+    xcode = "xcode27beta2",
+)
 apple.simulator_runtime(
     name = "ios26_5_runtime",
     path = "/Users/logan/Downloads/hermetic/xcode_26_5/simulators/iOS_26.5_23F77.dmg",

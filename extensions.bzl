@@ -39,6 +39,7 @@ machine (and per license agreement revision):
 """
 
 load("//private:apple_cc.bzl", "hermetic_apple_cc_repository")
+load("//private:component.bzl", "apple_component_repository")
 load("//private:simulator_runtime.bzl", "apple_simulator_runtime_repository")
 load("//private:swift_config.bzl", "hermetic_swift_config_repository")
 load("//private:xcode.bzl", "apple_xcode_repository")
@@ -95,6 +96,33 @@ _SIMULATOR_RUNTIME_TAG = tag_class(
     },
 )
 
+_COMPONENT_TAG = tag_class(
+    doc = "Registers a downloadable Xcode component (for example the Metal Toolchain).",
+    attrs = {
+        "name": attr.string(
+            doc = "Repository name for the component.",
+            mandatory = True,
+        ),
+        "path": attr.string(
+            doc = "Absolute path to an exported component bundle.",
+        ),
+        "url": attr.string(
+            doc = "URL of a re-hosted component bundle (optionally archived).",
+        ),
+        "sha256": attr.string(
+            doc = "SHA-256 of the downloaded file.",
+        ),
+        "component_type": attr.string(
+            doc = "The xcodebuild component type.",
+            default = "MetalToolchain",
+        ),
+        "xcode": attr.string(
+            doc = "Name of the apple.xcode tag used to install the component; " +
+                  "defaults to the default Xcode.",
+        ),
+    },
+)
+
 def _collect_root_tags(module_ctx, tag_name):
     tags = []
     for module in module_ctx.modules:
@@ -105,6 +133,7 @@ def _collect_root_tags(module_ctx, tag_name):
 def _apple_impl(module_ctx):
     xcodes = _collect_root_tags(module_ctx, "xcode")
     runtimes = _collect_root_tags(module_ctx, "simulator_runtime")
+    components = _collect_root_tags(module_ctx, "component")
 
     if not xcodes:
         fail("Expected at least one apple.xcode(...) tag in the root module.")
@@ -148,11 +177,32 @@ def _apple_impl(module_ctx):
         )
         runtime_repos.append(tag.name)
 
+    component_repos = []
+    for tag in components:
+        if tag.name in component_repos or tag.name in runtime_repos or tag.name in xcode_repos:
+            fail("Duplicate repository name {}".format(repr(tag.name)))
+        xcode = tag.xcode or default_repo or xcode_repos[0]
+        if xcode not in xcode_repos:
+            fail("apple.component(name = {}): unknown xcode {}".format(
+                repr(tag.name),
+                repr(xcode),
+            ))
+        apple_component_repository(
+            name = tag.name,
+            path = tag.path,
+            url = tag.url,
+            sha256 = tag.sha256,
+            component_type = tag.component_type,
+            xcode_repo = "@{}//:BUILD.bazel".format(xcode),
+        )
+        component_repos.append(tag.name)
+
     apple_xcode_config_repository(
         name = "apple_toolchains",
         xcode_repos = xcode_repos,
         xcode_repo_files = ["@{}//:BUILD.bazel".format(repo) for repo in xcode_repos],
         simulator_runtime_repos = runtime_repos,
+        component_repos = component_repos,
         default_xcode_repo = default_repo or xcode_repos[0],
     )
 
@@ -165,6 +215,7 @@ apple = module_extension(
     doc = "Registers hermetic, verbatim Xcode installations and simulator runtimes.",
     implementation = _apple_impl,
     tag_classes = {
+        "component": _COMPONENT_TAG,
         "simulator_runtime": _SIMULATOR_RUNTIME_TAG,
         "xcode": _XCODE_TAG,
     },

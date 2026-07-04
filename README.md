@@ -118,6 +118,41 @@ documentation), run its bare name:
 bazel run @apple_toolchains//:xcode27beta2
 ```
 
+### Metal Toolchain (optional)
+
+Since Xcode 26, the Metal shader compiler is a separate download — it's the
+"components" the Xcode GUI prompts to install on first launch, and `metal`
+invocations fail without it. Only needed if you compile Metal shaders (or
+want the GUI to open without prompting); each Xcode build wants its own
+component build.
+
+Vendor it from an Xcode whose license is accepted:
+
+```
+bazel run @hermetic_apple_toolchains//scripts:create_hermetic_toolchain -- \
+    --xcode_path /path/to/Xcode.app \
+    --component_output_path <dir> \
+    --download_component MetalToolchain
+```
+
+This produces `<dir>/MetalToolchain_<xcode build>.exportedBundle` (a
+directory; archive it to re-host). Register it:
+
+```starlark
+apple.component(
+    name = "metal_toolchain_27",
+    path = "/opt/hermetic/xcode_27/components/MetalToolchain_27A5209h.exportedBundle",
+    # or url = "https://mirror.example.com/MetalToolchain_27A5209h.tar.zst", sha256 = "...",
+    xcode = "xcode27beta2",
+)
+```
+
+And install it once per machine (idempotent):
+
+```
+bazel run @apple_toolchains//:install_component_metal_toolchain_27
+```
+
 ### Xcode projects (rules_xcodeproj)
 
 Generated projects work with hermetic Xcodes: rules_xcodeproj selects the
