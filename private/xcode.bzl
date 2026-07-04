@@ -76,6 +76,26 @@ sh_binary(
 
 _OPEN_TEMPLATE = """\
 #!/bin/bash
+#
+# Opens the hermetic Xcode's GUI, first recording the per-user first-launch
+# state the GUI would otherwise prompt for:
+#  - the "Select platforms to develop for" sheet is presented once per SDK
+#    build until acknowledged; hermetic simulator runtimes are registered
+#    through the apple.simulator_runtime tag instead, so record this Xcode's
+#    SDK builds as already presented.
+#  - the "What's New in Xcode" splash is presented once per content revision.
+
+while read -r platform build; do
+  key="IDEPlatformsFirstLaunchPresentedSDKVersions-$platform"
+  if ! defaults read com.apple.dt.Xcode "$key" 2>/dev/null | grep -q "$build"; then
+    defaults write com.apple.dt.Xcode "$key" -array-add "$build"
+  fi
+done <<'PLATFORM_BUILDS'
+{platform_builds}
+PLATFORM_BUILDS
+
+defaults write com.apple.dt.Xcode IDELastShownWhatsNewContentRevision -int 999
+
 exec /usr/bin/open "{app}"
 """
 
@@ -208,6 +228,37 @@ def _default_sdk_versions(rctx, developer):
             attrs[attr_name] = settings["Version"]
     return attrs
 
+def _sdk_builds(rctx, developer):
+    """Reads each platform SDK's build number (for example 24A5370g)."""
+    builds = {}
+    for platform in _PLATFORM_TO_SDK_VERSION_ATTR:
+        dir_name = SDK_PLATFORMS[platform]
+        system_version = developer.get_child(
+            "Platforms",
+            dir_name + ".platform",
+            "Developer",
+            "SDKs",
+            dir_name + ".sdk",
+            "System",
+            "Library",
+            "CoreServices",
+            "SystemVersion.plist",
+        )
+        if not system_version.exists:
+            continue
+        result = rctx.execute([
+            "/usr/bin/plutil",
+            "-extract",
+            "ProductBuildVersion",
+            "raw",
+            "-o",
+            "-",
+            str(system_version),
+        ])
+        if result.return_code == 0 and result.stdout.strip():
+            builds[platform] = result.stdout.strip()
+    return builds
+
 def _apple_xcode_repository_impl(rctx):
     if rctx.attr.path:
         if rctx.attr.url:
@@ -298,9 +349,16 @@ def _apple_xcode_repository_impl(rctx):
         _FIRST_LAUNCH_TEMPLATE.format(app = str(rctx.path("Xcode.app"))),
         executable = True,
     )
+    sdk_builds = _sdk_builds(rctx, developer)
     rctx.file(
         "open_xcode.sh",
-        _OPEN_TEMPLATE.format(app = str(rctx.path("Xcode.app"))),
+        _OPEN_TEMPLATE.format(
+            app = str(rctx.path("Xcode.app")),
+            platform_builds = "\n".join([
+                "{} {}".format(platform, build)
+                for platform, build in sorted(sdk_builds.items())
+            ]),
+        ),
         executable = True,
     )
     rctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(

@@ -118,6 +118,11 @@ documentation), run its bare name:
 bazel run @apple_toolchains//:xcode27beta2
 ```
 
+The runnable also pre-records the GUI's one-time first-launch state (the
+"Select platforms to develop for" sheet and the "What's New in Xcode"
+splash), so the Xcode opens without prompting — simulator runtimes and the
+Metal Toolchain are provided by their tags instead.
+
 ### Metal Toolchain (optional)
 
 Since Xcode 26, the Metal shader compiler is a separate download — it's the
