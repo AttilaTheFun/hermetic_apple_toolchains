@@ -8,7 +8,7 @@ entire build between them:
 
 ```
 bazel build //app:ios_app --xcode_version=xcode26_5
-bazel run   //app:ios_app --config=xcode27beta2    # build + launch in a simulator
+bazel run   //app:ios_app --config=xcode27beta2
 ```
 
 Each registered Xcode is a complete, unmodified copy, so the full toolchain
@@ -50,11 +50,12 @@ apps in a simulator.
 ```starlark
 bazel_dep(name = "hermetic_apple_toolchains", version = "0.0.0")
 
-# Two small apple_support changes are pending upstream:
+# Two small apple_support changes are pending upstream
+# (https://github.com/bazelbuild/apple_support/pull/616):
 git_override(
     module_name = "apple_support",
     remote = "https://github.com/AttilaTheFun/apple_support.git",
-    commit = "92ebd80ca6a43335e8453e9640dee100bf1291f8",
+    commit = "22ebbc39c94951fe28fc170b5c9d438741774976",
 )
 
 apple = use_extension("@hermetic_apple_toolchains//:extensions.bzl", "apple")
