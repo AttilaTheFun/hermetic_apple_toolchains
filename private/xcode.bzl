@@ -96,6 +96,20 @@ PLATFORM_BUILDS
 
 defaults write com.apple.dt.Xcode IDELastShownWhatsNewContentRevision -int 999
 
+# Any arguments are documents (for example an .xcodeproj) to open in this
+# Xcode. `bazel run` executes from the runfiles tree, so resolve relative
+# paths against the directory the user invoked bazel from.
+if [[ $# -gt 0 ]]; then
+  docs=()
+  for doc in "$@"; do
+    if [[ "$doc" != /* && -n "${{BUILD_WORKING_DIRECTORY:-}}" ]]; then
+      doc="$BUILD_WORKING_DIRECTORY/$doc"
+    fi
+    docs+=("$doc")
+  done
+  exec /usr/bin/open -a "{app}" "${{docs[@]}}"
+fi
+
 exec /usr/bin/open "{app}"
 """
 
