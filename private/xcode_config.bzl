@@ -12,11 +12,14 @@ xcode_config(
     versions = {versions},
 )
 
-# Convenience runnables:
-#   `bazel run @apple_toolchains//:accept_license_<xcode>` accepts the Xcode
-#   license (requires sudo; once per machine and agreement revision).
-#   `bazel run @apple_toolchains//:install_runtime_<runtime>` registers a
-#   vendored simulator runtime with CoreSimulator (idempotent).
+# Public runnables per Xcode:
+#   `bazel run @apple_toolchains//:check_<xcode>` reports the one-time
+#   per-machine setup status (exits non-zero when anything is needed).
+#   `bazel run @apple_toolchains//:prepare_<xcode>` runs only the needed
+#   setup steps (license, simulator system components, runtime and
+#   component installation; may prompt for sudo).
+#   `bazel run @apple_toolchains//:<xcode>` opens the Xcode's GUI,
+#   optionally with documents (for example an .xcodeproj) as arguments.
 # The with_developer_dir_<xcode> targets are `--run_under` wrappers that
 # point DEVELOPER_DIR at the corresponding hermetic Xcode.
 {aliases}
@@ -63,23 +66,43 @@ export DEVELOPER_DIR="$DEV"
 exec "$@"
 """
 
-# check_<xcode> script pieces. Assembled per Xcode from the header, the
-# optional simulator-components block, and one block per associated
-# simulator runtime and component.
-_CHECK_HEADER = """\
+# Shared check/prepare implementation, assembled per Xcode from the header,
+# the optional simulator-components block, and one block per associated
+# simulator runtime and component. check_<xcode> and prepare_<xcode> are
+# thin wrappers selecting the mode: check reports each step's status,
+# prepare runs only the steps that are needed (so lazily vendored runtime
+# and component repositories are only fetched when their step actually
+# needs fixing).
+_SETUP_HEADER = """\
 #!/bin/bash
 #
-# Reports the status of the one-time per-machine setup steps for the
-# hermetic Xcode {name}. Exits non-zero when any step is still needed;
-# `bazel run @apple_toolchains//:prepare_{name}` runs the needed steps.
+# check/prepare implementation for the hermetic Xcode {name}; the mode is
+# the first argument.
 
+MODE="${{1:-check}}"
 APP="{app}"
 DEV="$APP/Contents/Developer"
 needed=0
 
 ok() {{ printf '  [ok]     %s\\n' "$1"; }}
-needs() {{ printf '  [needed] %s\\n' "$1"; needed=1; }}
 info() {{ printf '  [info]   %s\\n' "$1"; }}
+
+# needs <description> <label>: report the step in check mode; run the
+# fixing target in prepare mode.
+needs() {{
+  needed=1
+  if [[ "$MODE" == "prepare" ]]; then
+    printf '  [fix]    %s\\n' "$1"
+    (cd "$BUILD_WORKING_DIRECTORY" && bazel run "$2") || exit 1
+  else
+    printf '  [needed] %s\\n' "$1"
+  fi
+}}
+
+if [[ "$MODE" == "prepare" && -z "${{BUILD_WORKING_DIRECTORY:-}}" ]]; then
+  echo "Run this with: bazel run @apple_toolchains//:prepare_{name}" >&2
+  exit 1
+fi
 
 echo "Hermetic Xcode {name} ($APP)"
 
@@ -90,11 +113,11 @@ agreed=$(defaults read /Library/Preferences/com.apple.dt.Xcode \\
 if [[ "$license_id" == "$agreed" ]]; then
   ok "license $license_id ($license_type) accepted"
 else
-  needs "license $license_id ($license_type) not accepted: bazel run @apple_toolchains//:accept_license_{name}"
+  needs "license $license_id ($license_type) not accepted" "{xcode_label}//:accept_license"
 fi
 """
 
-_CHECK_FIRST_LAUNCH = """\
+_SETUP_FIRST_LAUNCH = """\
 
 PKG="$APP/Contents/Resources/Packages/XcodeSystemResources.pkg"
 shipped=$(cd "$(mktemp -d)" && /usr/bin/xar -xf "$PKG" PackageInfo 2>/dev/null && \\
@@ -105,55 +128,58 @@ installed="${{installed:-0}}"
 if [[ "$(printf '%s\\n%s\\n' "$shipped" "$installed" | sort -V | tail -1)" == "$installed" ]]; then
   ok "Xcode system components $installed (this Xcode ships $shipped)"
 else
-  needs "system components $installed older than shipped $shipped: bazel run @apple_toolchains//:first_launch_{name}"
+  needs "system components $installed older than shipped $shipped" "{xcode_label}//:first_launch"
 fi
 """
 
-_CHECK_RUNTIME = """\
+_SETUP_RUNTIME = """\
 
 if env DEVELOPER_DIR="$DEV" /usr/bin/xcrun simctl runtime list 2>/dev/null | \\
     grep "({build})" | grep -q "(Ready)"; then
   ok "simulator runtime {runtime} ({build}) registered"
 else
-  needs "simulator runtime {runtime} not registered: bazel run @apple_toolchains//:install_runtime_{runtime}"
+  needs "simulator runtime {runtime} ({build}) not registered" "{runtime_label}//:install"
 fi
 """
 
-_CHECK_RUNTIME_UNKNOWN = """\
+_SETUP_RUNTIME_UNKNOWN = """\
 
-info "simulator runtime {runtime}: build not derivable from the image name; install_runtime_{runtime} is idempotent"
+if [[ "$MODE" == "prepare" ]]; then
+  needs "simulator runtime {runtime} (build unknown; install is idempotent)" "{runtime_label}//:install"
+else
+  info "simulator runtime {runtime}: build not derivable from the image name; prepare always runs its install"
+fi
 """
 
-_CHECK_COMPONENT = """\
+_SETUP_COMPONENT = """\
 
 if env DEVELOPER_DIR="$DEV" "$DEV/usr/bin/xcodebuild" -showComponent {component_type} -json 2>/dev/null | \\
     grep -q '"status" : "installed"'; then
   ok "component {component} ({component_type}) installed"
 else
-  needs "component {component} ({component_type}) not installed: bazel run @apple_toolchains//:install_component_{component}"
+  needs "component {component} ({component_type}) not installed" "{component_label}//:install"
 fi
 """
 
-_CHECK_FOOTER = """\
+_SETUP_FOOTER = """\
 
+if [[ "$MODE" == "prepare" ]]; then
+  if [[ $needed -eq 0 ]]; then
+    echo "Nothing to do."
+  fi
+  exit 0
+fi
+if [[ $needed -eq 1 ]]; then
+  echo ""
+  echo "Run: bazel run @apple_toolchains//:prepare_{name}"
+fi
 exit $needed
 """
 
-_PREPARE_TEMPLATE = """\
+_MODE_WRAPPER_TEMPLATE = """\
 #!/bin/bash
-#
-# Runs the one-time per-machine setup steps for the hermetic Xcode {name}.
-# Every step is idempotent; steps that are already done no-op quickly.
-
-set -euo pipefail
-
-if [[ -z "${{BUILD_WORKING_DIRECTORY:-}}" ]]; then
-  echo "Run this with: bazel run @apple_toolchains//:prepare_{name}" >&2
-  exit 1
-fi
-cd "$BUILD_WORKING_DIRECTORY"
-
-{steps}"""
+exec "{setup}" {mode} "$@"
+"""
 
 def _apple_xcode_config_repository_impl(rctx):
     versions = [
@@ -194,9 +220,16 @@ def _apple_xcode_config_repository_impl(rctx):
     elif simulator_apps:
         donor = simulator_apps[simulator_apps.keys()[0]]
 
+    # Canonical repository-name prefix shared by every repository this
+    # extension instantiates (for example "+apple+"). The generated prepare
+    # scripts use canonical labels so they can `bazel run` the per-repo
+    # install targets without the hub exposing public aliases for them.
+    canonical_prefix = rctx.name.rsplit("apple_toolchains", 1)[0]
+
     aliases = []
     for repo in rctx.attr.xcode_repos:
         app = str(developer_dirs[repo].dirname.dirname)
+        xcode_label = "@@{}{}".format(canonical_prefix, repo)
 
         # Runtimes and components associated with this Xcode, as
         # (repo name, build or component type) pairs.
@@ -213,8 +246,6 @@ def _apple_xcode_config_repository_impl(rctx):
 
         # `bazel run @apple_toolchains//:<name>` opens the Xcode's GUI.
         aliases.append(alias(repo, "@{}//:open".format(repo)))
-        aliases.append(alias("accept_license_" + repo, "@{}//:accept_license".format(repo)))
-        aliases.append(alias("first_launch_" + repo, "@{}//:first_launch".format(repo)))
         if repo in simulator_apps or not donor:
             aliases.append(alias("with_developer_dir_" + repo, "@{}//:with_developer_dir".format(repo)))
         else:
@@ -232,47 +263,46 @@ def _apple_xcode_config_repository_impl(rctx):
             aliases.append(sh_binary("with_developer_dir_" + repo, script))
 
         # `check_<xcode>` reports the one-time per-machine setup status;
-        # `prepare_<xcode>` runs the needed steps (license, simulator
-        # system components when runtimes are registered, runtime and
-        # component installation).
-        check = _CHECK_HEADER.format(name = repo, app = app)
-        steps = ["accept_license_" + repo]
+        # `prepare_<xcode>` runs only the steps that are needed (license,
+        # simulator system components when runtimes are registered, runtime
+        # and component installation).
+        setup = _SETUP_HEADER.format(name = repo, app = app, xcode_label = xcode_label)
         if runtimes:
-            check += _CHECK_FIRST_LAUNCH.format(name = repo)
-            steps.append("first_launch_" + repo)
+            setup += _SETUP_FIRST_LAUNCH.format(xcode_label = xcode_label)
         for name, build in runtimes:
+            runtime_label = "@@{}{}".format(canonical_prefix, name)
             if build:
-                check += _CHECK_RUNTIME.format(runtime = name, build = build)
+                setup += _SETUP_RUNTIME.format(
+                    runtime = name,
+                    build = build,
+                    runtime_label = runtime_label,
+                )
             else:
-                check += _CHECK_RUNTIME_UNKNOWN.format(runtime = name)
-            steps.append("install_runtime_" + name)
+                setup += _SETUP_RUNTIME_UNKNOWN.format(
+                    runtime = name,
+                    runtime_label = runtime_label,
+                )
         for name, component_type in components:
-            check += _CHECK_COMPONENT.format(
+            setup += _SETUP_COMPONENT.format(
                 component = name,
                 component_type = component_type,
+                component_label = "@@{}{}".format(canonical_prefix, name),
             )
-            steps.append("install_component_" + name)
-        check += _CHECK_FOOTER
+        setup += _SETUP_FOOTER.format(name = repo)
 
-        rctx.file("check_{}.sh".format(repo), check, executable = True)
-        aliases.append(sh_binary("check_" + repo, "check_{}.sh".format(repo)))
-        rctx.file(
-            "prepare_{}.sh".format(repo),
-            _PREPARE_TEMPLATE.format(
-                name = repo,
-                steps = "".join([
-                    'echo "==> {}"\nbazel run @apple_toolchains//:{}\n'.format(step, step)
-                    for step in steps
-                ]),
-            ),
-            executable = True,
-        )
-        aliases.append(sh_binary("prepare_" + repo, "prepare_{}.sh".format(repo)))
-
-    for repo in sorted(rctx.attr.simulator_runtime_repos.keys()):
-        aliases.append(alias("install_runtime_" + repo, "@{}//:install".format(repo)))
-    for repo in sorted(rctx.attr.component_repos.keys()):
-        aliases.append(alias("install_component_" + repo, "@{}//:install".format(repo)))
+        setup_script = "setup_{}.sh".format(repo)
+        rctx.file(setup_script, setup, executable = True)
+        for mode in ["check", "prepare"]:
+            script = "{}_{}.sh".format(mode, repo)
+            rctx.file(
+                script,
+                _MODE_WRAPPER_TEMPLATE.format(
+                    setup = str(rctx.path(setup_script)),
+                    mode = mode,
+                ),
+                executable = True,
+            )
+            aliases.append(sh_binary("{}_{}".format(mode, repo), script))
 
     rctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(
         default = repr(default),

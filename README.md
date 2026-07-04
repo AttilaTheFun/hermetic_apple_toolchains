@@ -99,34 +99,30 @@ build:xcode27beta2 --xcode_version=xcode27beta2
 
 ### Using an Xcode
 
-Each Xcode requires some one-time per-machine setup (license acceptance,
-and — when simulator runtimes or components are registered — their
-installation). Two runnables manage all of it:
+Each Xcode requires some one-time per-machine setup: accepting the Xcode
+license (once per machine and license agreement revision; GM and Beta
+agreements are tracked separately by macOS), and — when simulator runtimes
+or components are registered — installing them. Two runnables manage all
+of it:
 
 ```
 bazel run @apple_toolchains//:check_xcode26_5     # report setup status (exits non-zero if anything is needed)
-bazel run @apple_toolchains//:prepare_xcode26_5   # run every needed step (idempotent; may prompt for sudo)
+bazel run @apple_toolchains//:prepare_xcode26_5   # run only the needed steps (may prompt for sudo)
 ```
 
-`check` prints one `[ok]`/`[needed]` line per step with the exact command
-that fixes it; `prepare` just runs them all in order. Tell developers to
-run `prepare` once per machine (and again after registering a new Xcode,
-runtime, or component); `check` is handy for diagnostics and CI probes.
+`check` prints one `[ok]`/`[needed]` line per step without changing
+anything; `prepare` performs the same checks and runs just the steps that
+are needed (vendored runtimes and components are only fetched when their
+step actually runs). Tell developers to run `prepare` once per machine,
+and again after a new Xcode, runtime, or component is registered; `check`
+is handy for diagnostics and CI probes.
 
-The individual steps are also runnable directly. Once per machine and per
-license agreement revision (GM and Beta agreements are tracked separately
-by macOS), accept the Xcode license:
-
-```
-bazel run @apple_toolchains//:accept_license_xcode26_5    # prompts for sudo
-```
-
-The runnable is a no-op when the agreement is already accepted. After that,
-build normally; `--xcode_version=<name or alias>` (or your configs) selects
-the Xcode, and everything — compilers, SDKs, resource tools, and the
-`DTXcode`/`DTSDKBuild` values stamped into `Info.plist` — follows it. Each
-Xcode also answers to its version and build numbers (for example
-`--xcode_version=26.5` or `17F42`) in addition to its name and aliases.
+After that, build normally; `--xcode_version=<name or alias>` (or your
+configs) selects the Xcode, and everything — compilers, SDKs, resource
+tools, and the `DTXcode`/`DTSDKBuild` values stamped into `Info.plist` —
+follows it. Each Xcode also answers to its version and build numbers (for
+example `--xcode_version=26.5` or `17F42`) in addition to its name and
+aliases.
 
 Building for simulator and device both work with just the above. Running on
 a physical device uses your normal signing/provisioning setup.
@@ -172,11 +168,8 @@ apple.component(
 )
 ```
 
-And install it once per machine (idempotent):
-
-```
-bazel run @apple_toolchains//:install_component_metal_toolchain_27
-```
+`prepare_<xcode>` installs it when needed, along with the rest of the
+one-time setup.
 
 ### Xcode projects (rules_xcodeproj)
 
@@ -253,22 +246,17 @@ run:xcode27beta2 --ios_simulator_version=27.0
 
 ### Using a simulator runtime
 
-Once per machine:
+Registering an `apple.simulator_runtime` tag adds two steps to the Xcode's
+`prepare_<xcode>` runnable: installing the Xcode generation's simulator
+system components (CoreSimulator framework; prompts for sudo — required
+before beta runtimes will boot on a machine that has only seen older
+Xcodes, since `xcodebuild -runFirstLaunch` alone never upgrades across
+Xcode generations), and registering the runtime with CoreSimulator (macOS
+shows an admin authorization dialog on first registration). So once per
+machine:
 
 ```
-# Install the Xcode generation's simulator system components (CoreSimulator
-# framework; prompts for sudo). Required before beta runtimes will boot on a
-# machine that has only seen older Xcodes, and on machines that never had
-# any Xcode installed. (The runnable installs the components package
-# directly when the Xcode ships a newer one — `xcodebuild -runFirstLaunch`
-# alone never upgrades across Xcode generations, and without the upgrade
-# beta runtimes fail to boot with "runtime path not found".)
-bazel run @apple_toolchains//:first_launch_xcode27beta2
-
-# Register the runtime with CoreSimulator. Idempotent; macOS shows an admin
-# authorization dialog ("xcodebuild is trying to install Apple software") on
-# first registration.
-bazel run @apple_toolchains//:install_runtime_ios27_runtime
+bazel run @apple_toolchains//:prepare_xcode27beta2
 ```
 
 Then `bazel run //app:ios_app --config=xcode27beta2` boots a simulator on
