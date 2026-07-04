@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  example:
+    name: Build and run the example app hermetically
+    runs-on: macos-26
+    env:
+      XCODE: /Applications/Xcode_26.5.app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Register the runner's Xcode as a hermetic Xcode
+        run: python3 .github/register_ci_xcode.py "$XCODE"
+
+      - name: Build the example app with the hermetic Xcode
+        run: bazel build //examples/ios_example --config=xcode26
+
+      - name: Verify the app was stamped by the hermetic Xcode
+        run: |
+          ipa=$(bazel cquery //examples/ios_example --config=xcode26 --output=files 2>/dev/null | grep '\.ipa$')
+          unzip -oq "$ipa" -d "$RUNNER_TEMP/app"
+          plist="$RUNNER_TEMP/app/Payload/ios_example.app/Info.plist"
+          actual=$(/usr/libexec/PlistBuddy -c 'Print :DTXcodeBuild' "$plist")
+          expected=$(/usr/libexec/PlistBuddy -c 'Print :ProductBuildVersion' "$XCODE/Contents/version.plist")
+          echo "DTXcodeBuild: $actual (Xcode ships $expected)"
+          test "$actual" = "$expected"
+
+      - name: Run the example app in a simulator
+        run: |
+          bazel run //examples/ios_example --config=xcode26 > run.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 90); do
+            grep -q '\[hermetic\]' run.log && break
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 5
+          done
+          kill "$pid" 2>/dev/null || true
+          tail -20 run.log
+          grep '\[hermetic\]' run.log

@@ -1,5 +1,7 @@
 # hermetic_apple_toolchains
 
+[![CI](https://github.com/AttilaTheFun/hermetic_apple_toolchains/actions/workflows/ci.yml/badge.svg)](https://github.com/AttilaTheFun/hermetic_apple_toolchains/actions/workflows/ci.yml)
+
 Build (and optionally run) Apple platform applications with Bazel using
 **verbatim, re-hosted Xcode installations** — nothing installed via the App
 Store or `xcode-select`, no Xcode ever opened. Bazel fetches and caches each

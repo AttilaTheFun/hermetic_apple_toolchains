@@ -21,3 +21,6 @@ run:xcode26 --ios_simulator_version=26.5
 build:xcode27beta2 --xcode_version=xcode27beta2
 run:xcode27beta2 --run_under=@apple_toolchains//:with_developer_dir_xcode27beta2
 run:xcode27beta2 --ios_simulator_version=27.0
+
+# Machine-local settings (gitignored).
+try-import %workspace%/.bazelrc.user
