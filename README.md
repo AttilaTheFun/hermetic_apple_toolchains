@@ -99,8 +99,23 @@ build:xcode27beta2 --xcode_version=xcode27beta2
 
 ### Using an Xcode
 
-Once per machine and per license agreement revision (GM and Beta agreements
-are tracked separately by macOS), accept the Xcode license:
+Each Xcode requires some one-time per-machine setup (license acceptance,
+and — when simulator runtimes or components are registered — their
+installation). Two runnables manage all of it:
+
+```
+bazel run @apple_toolchains//:check_xcode26_5     # report setup status (exits non-zero if anything is needed)
+bazel run @apple_toolchains//:prepare_xcode26_5   # run every needed step (idempotent; may prompt for sudo)
+```
+
+`check` prints one `[ok]`/`[needed]` line per step with the exact command
+that fixes it; `prepare` just runs them all in order. Tell developers to
+run `prepare` once per machine (and again after registering a new Xcode,
+runtime, or component); `check` is handy for diagnostics and CI probes.
+
+The individual steps are also runnable directly. Once per machine and per
+license agreement revision (GM and Beta agreements are tracked separately
+by macOS), accept the Xcode license:
 
 ```
 bazel run @apple_toolchains//:accept_license_xcode26_5    # prompts for sudo

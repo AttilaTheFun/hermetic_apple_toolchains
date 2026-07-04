@@ -158,7 +158,7 @@ def _apple_impl(module_ctx):
                 fail("Multiple apple.xcode tags have default = True.")
             default_repo = tag.name
 
-    runtime_repos = []
+    runtime_repos = {}
     for tag in runtimes:
         if tag.name in runtime_repos or tag.name in xcode_repos:
             fail("Duplicate repository name {}".format(repr(tag.name)))
@@ -175,9 +175,19 @@ def _apple_impl(module_ctx):
             sha256 = tag.sha256,
             xcode_repo = "@{}//:BUILD.bazel".format(xcode),
         )
-        runtime_repos.append(tag.name)
 
-    component_repos = []
+        # Derive the runtime build from the <Platform>_<version>_<build>.dmg
+        # naming convention (used by check_<xcode> to report registration
+        # status); empty when the image is named differently.
+        basename = (tag.path or tag.url).rsplit("/", 1)[-1]
+        build = ""
+        if basename.endswith(".dmg"):
+            parts = basename[:-len(".dmg")].split("_")
+            if len(parts) == 3:
+                build = parts[2]
+        runtime_repos[tag.name] = [xcode, build]
+
+    component_repos = {}
     for tag in components:
         if tag.name in component_repos or tag.name in runtime_repos or tag.name in xcode_repos:
             fail("Duplicate repository name {}".format(repr(tag.name)))
@@ -195,7 +205,7 @@ def _apple_impl(module_ctx):
             component_type = tag.component_type,
             xcode_repo = "@{}//:BUILD.bazel".format(xcode),
         )
-        component_repos.append(tag.name)
+        component_repos[tag.name] = [xcode, tag.component_type]
 
     apple_xcode_config_repository(
         name = "apple_toolchains",
