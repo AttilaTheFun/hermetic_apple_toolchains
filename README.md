@@ -52,12 +52,17 @@ apps in a simulator.
 ```starlark
 bazel_dep(name = "hermetic_apple_toolchains", version = "0.0.0")
 
-# Two small apple_support changes are pending upstream
-# (https://github.com/bazelbuild/apple_support/pull/616):
+# The rules-based Apple CC toolchain is not yet in a tagged apple_support
+# release; pin upstream main. The patch adds an extra_include_directories
+# label_flag (proposed upstream) used to allowlist the hermetic developer
+# directories for include validation — copy it from this repository's
+# patches/ directory.
 git_override(
     module_name = "apple_support",
-    remote = "https://github.com/AttilaTheFun/apple_support.git",
-    commit = "22ebbc39c94951fe28fc170b5c9d438741774976",
+    commit = "b1585a30cd0ec39de2b5ad72ed5c8b157b2c6e4f",
+    patch_strip = 1,
+    patches = ["//patches:apple_support_extra_include_directories.patch"],
+    remote = "https://github.com/bazelbuild/apple_support.git",
 )
 
 apple = use_extension("@hermetic_apple_toolchains//:extensions.bzl", "apple")
@@ -72,14 +77,12 @@ apple.xcode(
     url = "https://mirror.example.com/Xcode_27_beta_2.tar.zst",
     sha256 = "...",
 )
-use_repo(apple, "apple_toolchains", "hermetic_apple_cc", "hermetic_swift_config")
+use_repo(apple, "apple_toolchains", "hermetic_swift_config")
 
-# Replace apple_support's autodetected C++ toolchain and rules_swift's
-# autoconfigured toolchain (which probe *installed* Xcodes) with hermetic
-# equivalents.
-apple_cc = use_extension("@apple_support//crosstool:setup.bzl", "apple_cc_configure_extension")
-override_repo(apple_cc, local_config_apple_cc = "hermetic_apple_cc")
-
+# Replace rules_swift's autoconfigured toolchain (which probes *installed*
+# Xcodes) with a hermetic equivalent. (No C++ toolchain override is needed:
+# apple_support's rules-based toolchain is driven by the xcode_config at
+# analysis time.)
 swift_non_module_deps = use_extension("@rules_swift//swift:extensions.bzl", "non_module_deps")
 override_repo(swift_non_module_deps, rules_swift_local_config = "hermetic_swift_config")
 ```
@@ -87,10 +90,17 @@ override_repo(swift_non_module_deps, rules_swift_local_config = "hermetic_swift_
 `.bazelrc`:
 
 ```
+# Use apple_support's rules-based CC toolchain (no fetch-time probing of
+# installed Xcodes; a path-valued Xcode version becomes DEVELOPER_DIR).
+common --repo_env=APPLE_SUPPORT_RULES_BASED_TOOLCHAIN=1
+
 # Resolve Xcode through the registered hermetic Xcodes. (Both flags are
 # needed while apple_support migrates off Bazel's native apple fragment.)
 build --xcode_version_config=@apple_toolchains//:xcode_config
 build --@apple_support//xcode:starlark_version_config=@apple_toolchains//:xcode_config
+
+# Allowlist the hermetic developer directories for include validation.
+build --@apple_support//toolchain:extra_include_directories=@apple_toolchains//:xcode_include_directories
 
 # Convenience configs per Xcode.
 build:xcode26 --xcode_version=xcode26_5
@@ -316,7 +326,7 @@ Xcode.
   `/usr/bin/codesign`, `/usr/bin/plutil`).
 * Local execution only for now: the generated Xcode selection embeds
   absolute paths from this machine's Bazel output base.
-* Fetch-time feature probes in apple_support/rules_swift still consult the
-  host's default toolchain; build actions use only the hermetic Xcode.
+* rules_swift's fetch-time feature probes still consult the host's default
+  toolchain; build actions use only the hermetic Xcode.
 * Xcodes are fetched as full copies (APFS clones when local — effectively
   free; ~10 GB downloads when remote, cached by Bazel across builds).

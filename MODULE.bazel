@@ -17,15 +17,17 @@ bazel_dep(name = "rules_apple", version = "4.5.3", dev_dependency = True)
 bazel_dep(name = "rules_swift", version = "4.0.0-rc3", dev_dependency = True)
 bazel_dep(name = "rules_xcodeproj", version = "4.1.0", dev_dependency = True)
 
-# The hermetic Xcode support requires two small apple_support changes that
-# are not yet upstream (https://github.com/bazelbuild/apple_support/pull/616).
-# For local development against a checkout of the fork, put
-#   common --override_module=apple_support=../apple_support
-# in .bazelrc.user (gitignored).
+# The hermetic Xcode support uses apple_support's rules-based CC toolchain
+# (enabled via APPLE_SUPPORT_RULES_BASED_TOOLCHAIN=1 in .bazelrc), which is
+# not yet in a tagged release; pin upstream main. The patch adds an
+# extra_include_directories label_flag so the hermetic developer dirs can be
+# allowlisted for include validation (proposed upstream).
 git_override(
     module_name = "apple_support",
-    commit = "22ebbc39c94951fe28fc170b5c9d438741774976",
-    remote = "https://github.com/AttilaTheFun/apple_support.git",
+    commit = "b1585a30cd0ec39de2b5ad72ed5c8b157b2c6e4f",
+    patch_strip = 1,
+    patches = ["//patches:apple_support_extra_include_directories.patch"],
+    remote = "https://github.com/bazelbuild/apple_support.git",
 )
 
 # Example configuration for this machine, used to build //examples/... These
@@ -67,14 +69,7 @@ apple.simulator_runtime(
 )
 # --- END machine-local registration ---
 
-use_repo(apple, "apple_toolchains", "hermetic_apple_cc", "hermetic_swift_config")
-
-apple_cc = use_extension(
-    "@apple_support//crosstool:setup.bzl",
-    "apple_cc_configure_extension",
-    dev_dependency = True,
-)
-override_repo(apple_cc, local_config_apple_cc = "hermetic_apple_cc")
+use_repo(apple, "apple_toolchains", "hermetic_swift_config")
 
 swift_non_module_deps = use_extension(
     "@rules_swift//swift:extensions.bzl",
