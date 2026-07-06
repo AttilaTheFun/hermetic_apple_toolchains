@@ -18,14 +18,13 @@ bazel_dep(name = "rules_swift", version = "4.0.0-rc3", dev_dependency = True)
 bazel_dep(name = "rules_xcodeproj", version = "4.1.0", dev_dependency = True)
 
 # The hermetic Xcode support uses apple_support's rules-based CC toolchain
-# (enabled via APPLE_SUPPORT_RULES_BASED_TOOLCHAIN=1 in .bazelrc), which is
-# not yet in a tagged release. The pinned commit is upstream main plus the
-# extra_include_directories label_flag pending upstream as
-# https://github.com/bazelbuild/apple_support/pull/617.
+# (enabled via APPLE_SUPPORT_RULES_BASED_TOOLCHAIN=1 in .bazelrc) and its
+# extra_include_directories flag, neither of which is in a tagged release
+# yet; pin upstream main until one is.
 git_override(
     module_name = "apple_support",
-    commit = "74b10248ce0020405059e7e7d604f04b353b9153",
-    remote = "https://github.com/AttilaTheFun/apple_support.git",
+    commit = "1a9b8c2bb405c080ccd1ab8a58071588606f27b2",
+    remote = "https://github.com/bazelbuild/apple_support.git",
 )
 
 # Example configuration for this machine, used to build //examples/... These

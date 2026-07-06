@@ -127,31 +127,30 @@ build --@apple_support//toolchain:extra_include_directories=@apple_toolchains//:
 `try-import %workspace%/.bazelrc.user` (gitignored) carries machine-local
 settings.
 
-## apple_support dependency (one ~15-line change pending upstream)
+## apple_support dependency (fully upstream)
 
-We use apple_support's **rules-based toolchain**, which is main-only (not
-in any tagged release yet). MODULE.bazel `git_override`s the fork at a
-commit that is upstream main plus one ~15-line change: a `label_flag`
-`@apple_support//toolchain:extra_include_directories` (default: empty
-`cc_args`) appended to the toolchain's args — the hook our hub's
-generated `:xcode_include_directories` allowlist plugs into. That change
-is pending upstream as
-**https://github.com/bazelbuild/apple_support/pull/617** (fork branch
-`extra-include-directories`, local checkout at `../apple_support`).
+We use apple_support's **rules-based toolchain**, plus its
+`@apple_support//toolchain:extra_include_directories` `label_flag`
+(default: empty `cc_args`; the hook our hub's generated
+`:xcode_include_directories` allowlist plugs into — contributed as
+bazelbuild/apple_support#617, merged 2026-07). Neither is in a tagged
+release yet, so MODULE.bazel `git_override`s **upstream**
+`bazelbuild/apple_support` at a pinned main commit. Once a tagged release
+ships (and reaches BCR), drop the git_override for a plain `bazel_dep` —
+zero deltas on dependencies.
 
-History: an earlier fork PR (bazelbuild/apple_support#616, fork branch
-`hermetic-developer-dirs`) patched the **legacy** autoconf crosstool
+History: an earlier fork PR (bazelbuild/apple_support#616) patched the
+**legacy** autoconf crosstool
 (`configure_osx_toolchain(extra_include_dirs = [external root])` + treating
 a path-valued Xcode version as "latest" in two version checks). Keith
 reviewed it: the legacy API is being replaced by the rules-based toolchain,
 and passing the external root as a builtin include dir is a correctness
 bug (bazel#29613 — .d pruning silently drops dependencies for everything
-under external/). The rules-based toolchain makes both changes moot: it
+under external/). The rules-based toolchain made both changes moot: it
 has no Xcode version comparisons (those features are unconditional
 `negatable_feature`s) and takes the path-valued version straight from
-`xcode_config` at analysis time. Once #617 merges and ships in a tagged
-release, point the git_override (or a plain bazel_dep) at it — then the
-module needs **zero** deltas on its dependencies. rules_apple is **not**
+`xcode_config` at analysis time. The fork's branches are deleted; the
+`../apple_support` checkout tracks upstream main. rules_apple is **not**
 forked (a previous fork/PR was closed as unnecessary — upstream
 `environment_plist` works with app-style developer dirs).
 
@@ -309,7 +308,7 @@ exactly this).
 - Logan hand-edits the README for style; never clobber his wording —
   check `git diff` before writing over it, and beware that
   `git checkout <file>` discards uncommitted work (this bit us once).
-- Keep the apple_support fork minimal and upstreamable; do not fork
+- Keep dependency deltas minimal and upstreamable; do not fork
   rules_apple or rules_swift.
 - LICENSE is MIT (keith-style, Logan's copyright).
 - `MODULE.bazel.lock`, `bazel-*`, `*.xcodeproj`, `.bazelrc.user` are
@@ -323,9 +322,9 @@ exactly this).
   default toolchain (build actions are hermetic).
 - macOS host tools that ship with the OS are still used
   (`/usr/bin/xcrun`, `/usr/bin/codesign`, `/usr/bin/plutil`).
-- After apple_support#617 merges and ships in a tagged release: drop the
-  git_override, update README's Registering section, then BCR submission
-  (Logan is coordinating with keith).
+- After the next tagged apple_support release reaches BCR: drop the
+  git_override for a plain bazel_dep, update README's Registering
+  section, then BCR submission (Logan is coordinating with keith).
 - Simulator GUI for Xcode 27+ depends on a donor Xcode; if Apple's
   DeviceHub.app turns out to accept `-CurrentDeviceUDID`-style launching,
   the runner view could use it instead.
