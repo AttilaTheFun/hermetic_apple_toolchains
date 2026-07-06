@@ -2,6 +2,7 @@
 
 _BUILD_TEMPLATE = """\
 load("@apple_support//xcode:xcode_config.bzl", "xcode_config")
+load("@rules_cc//cc/toolchains:args.bzl", "cc_args")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 package(default_visibility = ["//visibility:public"])
@@ -10,6 +11,20 @@ xcode_config(
     name = "xcode_config",
     default = {default},
     versions = {versions},
+)
+
+# Allows compiler-emitted dependencies on hermetic SDK and toolchain headers
+# (absolute paths inside the vendored Xcodes) to pass include validation.
+# Wired into apple_support's rules-based toolchain via
+#   --@apple_support//toolchain:extra_include_directories=@apple_toolchains//:xcode_include_directories
+# Deliberately narrow: only the vendored developer directories, never the
+# external root — a broader entry covering the output base silently breaks
+# .d-file change detection for every external repository's headers
+# (https://github.com/bazelbuild/bazel/issues/29613).
+cc_args(
+    name = "xcode_include_directories",
+    actions = ["@rules_cc//cc/toolchains/actions:all_actions"],
+    allowlist_absolute_include_directories = {developer_dirs},
 )
 
 # Public runnables per Xcode:
@@ -307,6 +322,10 @@ def _apple_xcode_config_repository_impl(rctx):
     rctx.file("BUILD.bazel", _BUILD_TEMPLATE.format(
         default = repr(default),
         versions = repr(versions),
+        developer_dirs = repr([
+            str(developer_dirs[repo]) + "/"
+            for repo in rctx.attr.xcode_repos
+        ]),
         aliases = "\n".join(aliases),
     ))
 

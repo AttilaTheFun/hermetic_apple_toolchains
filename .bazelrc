@@ -1,3 +1,8 @@
+# Use apple_support's rules-based CC toolchain: driven by the xcode_config
+# at analysis time (a path-valued Xcode version flows straight into
+# DEVELOPER_DIR) with no fetch-time compiler probing of installed Xcodes.
+common --repo_env=APPLE_SUPPORT_RULES_BASED_TOOLCHAIN=1
+
 # Resolve Xcode versions through the hermetic Xcodes instead of locally
 # installed ones. Both the native flag and its Starlark counterpart must be
 # set while apple_support's migration off the native apple fragment is in
@@ -5,6 +10,10 @@
 # but both are analyzed.
 build --xcode_version_config=@apple_toolchains//:xcode_config
 build --@apple_support//xcode:starlark_version_config=@apple_toolchains//:xcode_config
+
+# Allowlist the hermetic developer directories for include validation (SDK
+# and toolchain headers are absolute paths inside the vendored Xcodes).
+build --@apple_support//toolchain:extra_include_directories=@apple_toolchains//:xcode_include_directories
 
 # Build iOS targets for the arm64 simulator by default so the example can be
 # launched on a local simulator.

@@ -19,16 +19,14 @@ Example:
         url = "https://mirror.example.com/Xcode_27_beta_2.tar.zst",
         sha256 = "...",
     )
-    use_repo(apple, "apple_toolchains", "hermetic_apple_cc", "hermetic_swift_config")
-
-    apple_cc = use_extension("@apple_support//crosstool:setup.bzl", "apple_cc_configure_extension")
-    override_repo(apple_cc, local_config_apple_cc = "hermetic_apple_cc")
+    use_repo(apple, "apple_toolchains", "hermetic_swift_config")
 
     swift_non_module_deps = use_extension("@rules_swift//swift:extensions.bzl", "non_module_deps")
     override_repo(swift_non_module_deps, rules_swift_local_config = "hermetic_swift_config")
 
 And in .bazelrc:
 
+    common --repo_env=APPLE_SUPPORT_RULES_BASED_TOOLCHAIN=1
     build --xcode_version_config=@apple_toolchains//:xcode_config
     build --@apple_support//xcode:starlark_version_config=@apple_toolchains//:xcode_config
 
@@ -38,7 +36,6 @@ machine (and per license agreement revision):
     bazel run @apple_toolchains//:accept_license_<name>
 """
 
-load("//private:apple_cc.bzl", "hermetic_apple_cc_repository")
 load("//private:component.bzl", "apple_component_repository")
 load("//private:simulator_runtime.bzl", "apple_simulator_runtime_repository")
 load("//private:swift_config.bzl", "hermetic_swift_config_repository")
@@ -216,7 +213,6 @@ def _apple_impl(module_ctx):
         default_xcode_repo = default_repo or xcode_repos[0],
     )
 
-    hermetic_apple_cc_repository(name = "hermetic_apple_cc")
     hermetic_swift_config_repository(name = "hermetic_swift_config")
 
     return module_ctx.extension_metadata(reproducible = True)

@@ -75,9 +75,22 @@ The "verbatim" constraint is load-bearing, not aesthetic:
   dicts* for runtimes/components (`{name: [xcode, build-or-type]}`) so
   check/prepare can test status **without fetching** the multi-GB
   runtime/component repos.
-- `hermetic_apple_cc` (`private/apple_cc.bzl`): calls apple_support's
-  `configure_osx_toolchain(rctx, extra_include_dirs = [external root])`;
-  wired via `override_repo(apple_cc, local_config_apple_cc = ...)`.
+- CC toolchain: apple_support's **rules-based toolchain**
+  (`@apple_support//toolchain`), enabled via
+  `--repo_env=APPLE_SUPPORT_RULES_BASED_TOOLCHAIN=1` in `.bazelrc`. It is
+  driven by the `xcode_config` at analysis time (a path-valued Xcode
+  version flows straight into `XCODE_VERSION_OVERRIDE` → `DEVELOPER_DIR`)
+  and does **no fetch-time compiler probing** — the legacy
+  `local_config_apple_cc` autoconf becomes a no-op, so no override repo is
+  needed. Include validation for the hermetic SDK/toolchain headers
+  (absolute paths inside the vendored Xcodes) is handled by the hub's
+  generated `:xcode_include_directories` `cc_args` target, wired via
+  `--@apple_support//toolchain:extra_include_directories=...` in
+  `.bazelrc`. That flag is pending upstream (see below). The allowlist is
+  deliberately only the vendored developer
+  dirs, never the external root: an entry covering the output base makes
+  Bazel's .d-file pruning silently drop real dependencies for every
+  external repo's headers (bazel#29613).
 - `hermetic_swift_config` (`private/swift_config.bzl`): static
   `xcode_swift_toolchain` targets without `system_sdk` (rules_swift 4's
   autoconfig probes *installed* Xcodes); wired via
@@ -97,12 +110,15 @@ Public interface per Xcode (everything else is internal, reached by
 - `with_developer_dir_<xcode>` — `--run_under` wrapper / ad-hoc
   `DEVELOPER_DIR` runner (`-- $SHELL` gives a pinned interactive shell).
 
-Both `.bazelrc` flags are required while apple_support migrates off the
-native apple fragment (the resolver analyzes both):
+The `.bazelrc` essentials (the two version-config flags are both required
+while apple_support migrates off the native apple fragment — the resolver
+analyzes both):
 
 ```
+common --repo_env=APPLE_SUPPORT_RULES_BASED_TOOLCHAIN=1
 build --xcode_version_config=@apple_toolchains//:xcode_config
 build --@apple_support//xcode:starlark_version_config=@apple_toolchains//:xcode_config
+build --@apple_support//toolchain:extra_include_directories=@apple_toolchains//:xcode_include_directories
 ```
 
 `.bazelrc` also defines per-Xcode configs (`--config=xcode26`,
@@ -111,30 +127,33 @@ build --@apple_support//xcode:starlark_version_config=@apple_toolchains//:xcode_
 `try-import %workspace%/.bazelrc.user` (gitignored) carries machine-local
 settings.
 
-## apple_support dependency (the one fork)
+## apple_support dependency (one ~15-line change pending upstream)
 
-Two small changes are needed, upstream at
-**https://github.com/bazelbuild/apple_support/pull/616** (fork
-`AttilaTheFun/apple_support`, branch `hermetic-developer-dirs`, single
-squashed commit `22ebbc39c94951fe28fc170b5c9d438741774976`; local checkout
-at `../apple_support`):
+We use apple_support's **rules-based toolchain**, which is main-only (not
+in any tagged release yet). MODULE.bazel `git_override`s the fork at a
+commit that is upstream main plus one ~15-line change: a `label_flag`
+`@apple_support//toolchain:extra_include_directories` (default: empty
+`cc_args`) appended to the toolchain's args — the hook our hub's
+generated `:xcode_include_directories` allowlist plugs into. That change
+is pending upstream as
+**https://github.com/bazelbuild/apple_support/pull/617** (fork branch
+`extra-include-directories`, local checkout at `../apple_support`).
 
-1. `configure_osx_toolchain` gains `extra_include_dirs` (so hermetic SDK
-   headers under the external root aren't undeclared inclusions).
-2. `cc_toolchain_config.bzl` treats a path-valued Xcode version as
-   "latest" in its two inline `>=` checks (`no_warn_duplicate_libraries`,
-   `reproducible_linker_flag`) instead of failing to parse the path — the
-   same convention as `xcode_support.is_xcode_at_least_version`
-   (apple_support#481) and rules_swift#1597.
-
-MODULE.bazel uses `git_override` on that commit so checkouts and CI work
-standalone; Logan develops against `../apple_support` via
-`common --override_module=apple_support=...` in `.bazelrc.user`. Logan
-plans to get #616 merged (keith is a maintainer) **before** BCR
-submission; afterwards drop the git_override + local_path machinery and
-depend on a released apple_support. rules_apple is **not** forked (a
-previous fork/PR was closed as unnecessary — upstream `environment_plist`
-works with app-style developer dirs).
+History: an earlier fork PR (bazelbuild/apple_support#616, fork branch
+`hermetic-developer-dirs`) patched the **legacy** autoconf crosstool
+(`configure_osx_toolchain(extra_include_dirs = [external root])` + treating
+a path-valued Xcode version as "latest" in two version checks). Keith
+reviewed it: the legacy API is being replaced by the rules-based toolchain,
+and passing the external root as a builtin include dir is a correctness
+bug (bazel#29613 — .d pruning silently drops dependencies for everything
+under external/). The rules-based toolchain makes both changes moot: it
+has no Xcode version comparisons (those features are unconditional
+`negatable_feature`s) and takes the path-valued version straight from
+`xcode_config` at analysis time. Once #617 merges and ships in a tagged
+release, point the git_override (or a plain bazel_dep) at it — then the
+module needs **zero** deltas on its dependencies. rules_apple is **not**
+forked (a previous fork/PR was closed as unnecessary — upstream
+`environment_plist` works with app-style developer dirs).
 
 ## Non-obvious mechanics (hard-won)
 
@@ -300,13 +319,13 @@ exactly this).
 
 - Local execution only: the generated `xcode_version` embeds absolute
   paths from this machine's Bazel output base.
-- Fetch-time feature probes in apple_support/rules_swift still consult
-  the host's default toolchain (build actions are hermetic).
+- rules_swift's fetch-time feature probes still consult the host's
+  default toolchain (build actions are hermetic).
 - macOS host tools that ship with the OS are still used
   (`/usr/bin/xcrun`, `/usr/bin/codesign`, `/usr/bin/plutil`).
-- After apple_support#616 merges + releases: drop the git_override,
-  update README's Registering section, then BCR submission (Logan is
-  coordinating with keith).
+- After apple_support#617 merges and ships in a tagged release: drop the
+  git_override, update README's Registering section, then BCR submission
+  (Logan is coordinating with keith).
 - Simulator GUI for Xcode 27+ depends on a donor Xcode; if Apple's
   DeviceHub.app turns out to accept `-CurrentDeviceUDID`-style launching,
   the runner view could use it instead.
