@@ -86,8 +86,8 @@ The "verbatim" constraint is load-bearing, not aesthetic:
   (absolute paths inside the vendored Xcodes) is handled by the hub's
   generated `:xcode_include_directories` `cc_args` target, wired via
   `--@apple_support//toolchain:extra_include_directories=...` in
-  `.bazelrc`. That flag comes from a small patch carried in `patches/`
-  (see below). The allowlist is deliberately only the vendored developer
+  `.bazelrc`. That flag is pending upstream (see below). The allowlist is
+  deliberately only the vendored developer
   dirs, never the external root: an entry covering the output base makes
   Bazel's .d-file pruning silently drop real dependencies for every
   external repo's headers (bazel#29613).
@@ -127,16 +127,17 @@ build --@apple_support//toolchain:extra_include_directories=@apple_toolchains//:
 `try-import %workspace%/.bazelrc.user` (gitignored) carries machine-local
 settings.
 
-## apple_support dependency (no fork; one small patch)
+## apple_support dependency (one ~15-line change pending upstream)
 
 We use apple_support's **rules-based toolchain**, which is main-only (not
-in any tagged release yet), so MODULE.bazel `git_override`s upstream
-`bazelbuild/apple_support` at a pinned main commit, plus a ~15-line patch
-(`patches/apple_support_extra_include_directories.patch`) adding a
-`label_flag` `@apple_support//toolchain:extra_include_directories`
-(default: empty `cc_args`) appended to the toolchain's args. That is the
-hook our hub's generated `:xcode_include_directories` allowlist plugs
-into.
+in any tagged release yet). MODULE.bazel `git_override`s the fork at a
+commit that is upstream main plus one ~15-line change: a `label_flag`
+`@apple_support//toolchain:extra_include_directories` (default: empty
+`cc_args`) appended to the toolchain's args — the hook our hub's
+generated `:xcode_include_directories` allowlist plugs into. That change
+is pending upstream as
+**https://github.com/bazelbuild/apple_support/pull/617** (fork branch
+`extra-include-directories`, local checkout at `../apple_support`).
 
 History: an earlier fork PR (bazelbuild/apple_support#616, fork branch
 `hermetic-developer-dirs`) patched the **legacy** autoconf crosstool
@@ -148,16 +149,11 @@ bug (bazel#29613 — .d pruning silently drops dependencies for everything
 under external/). The rules-based toolchain makes both changes moot: it
 has no Xcode version comparisons (those features are unconditional
 `negatable_feature`s) and takes the path-valued version straight from
-`xcode_config` at analysis time. The plan is to propose the `label_flag`
-hook upstream (replacing #616); once merged and released, drop the patch
-and the git_override entirely — then the module needs **zero** deltas on
-its dependencies. rules_apple is **not** forked (a previous fork/PR was
-closed as unnecessary — upstream `environment_plist` works with app-style
-developer dirs).
-
-The fork checkout at `../apple_support` (branch `hermetic-developer-dirs`)
-is historical; the `.bazelrc.user` `--override_module` line pointing at it
-is commented out.
+`xcode_config` at analysis time. Once #617 merges and ships in a tagged
+release, point the git_override (or a plain bazel_dep) at it — then the
+module needs **zero** deltas on its dependencies. rules_apple is **not**
+forked (a previous fork/PR was closed as unnecessary — upstream
+`environment_plist` works with app-style developer dirs).
 
 ## Non-obvious mechanics (hard-won)
 
@@ -327,10 +323,9 @@ exactly this).
   default toolchain (build actions are hermetic).
 - macOS host tools that ship with the OS are still used
   (`/usr/bin/xcrun`, `/usr/bin/codesign`, `/usr/bin/plutil`).
-- Propose the `extra_include_directories` label_flag upstream (replacing
-  the closed #616 approach); once merged and in a tagged release, drop
-  the patch + git_override, update README's Registering section, then
-  BCR submission (Logan is coordinating with keith).
+- After apple_support#617 merges and ships in a tagged release: drop the
+  git_override, update README's Registering section, then BCR submission
+  (Logan is coordinating with keith).
 - Simulator GUI for Xcode 27+ depends on a donor Xcode; if Apple's
   DeviceHub.app turns out to accept `-CurrentDeviceUDID`-style launching,
   the runner view could use it instead.

@@ -53,16 +53,14 @@ apps in a simulator.
 bazel_dep(name = "hermetic_apple_toolchains", version = "0.0.0")
 
 # The rules-based Apple CC toolchain is not yet in a tagged apple_support
-# release; pin upstream main. The patch adds an extra_include_directories
-# label_flag (proposed upstream) used to allowlist the hermetic developer
-# directories for include validation — copy it from this repository's
-# patches/ directory.
+# release. The pinned commit is upstream main plus an
+# extra_include_directories label_flag pending upstream
+# (https://github.com/bazelbuild/apple_support/pull/617), used to allowlist
+# the hermetic developer directories for include validation.
 git_override(
     module_name = "apple_support",
-    commit = "b1585a30cd0ec39de2b5ad72ed5c8b157b2c6e4f",
-    patch_strip = 1,
-    patches = ["//patches:apple_support_extra_include_directories.patch"],
-    remote = "https://github.com/bazelbuild/apple_support.git",
+    commit = "74b10248ce0020405059e7e7d604f04b353b9153",
+    remote = "https://github.com/AttilaTheFun/apple_support.git",
 )
 
 apple = use_extension("@hermetic_apple_toolchains//:extensions.bzl", "apple")
